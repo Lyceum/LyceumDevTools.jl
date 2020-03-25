@@ -62,12 +62,14 @@ end
 
 
 function ghactions(; kwargs...)
+    username = ENV["COMPAT_USERNAME"]
     spec = RepoSpec(
         reponame = ENV["GITHUB_REPOSITORY"],
-        username = ENV["COMPAT_USERNAME"],
+        username = username,
         token = ENV["COMPAT_TOKEN"],
         masterbranch = get(ENV, "COMPAT_MASTERBRANCH", DEFAULT_MASTERBRANCH),
         compatbranch = get(ENV, "COMPAT_COMPATBRANCH", DEFAULT_COMPATBRANCH),
+        gitconfig = Dict{String,String}("user.name" => username),
     )
     update_tomls!(spec; kwargs...)
     return nothing
