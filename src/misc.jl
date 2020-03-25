@@ -47,14 +47,13 @@ function genkeys(; user = "\$USER", repo = "\$REPO", comment = "lyceumdevs@gmail
     end
 end
 
-hasmanifest(pkgdir::String) =
-    !isnothing(Pkg.Operations.manifestfile_path(pkgdir, strict = true))
-hasproject(pkgdir::String) =
-    !isnothing(Pkg.Operations.projectfile_path(pkgdir, strict = true))
+
+hasmanifest(pkgdir::String) = manifestfile_path(pkgdir, strict = true) !== nothing
+hasproject(pkgdir::String) = projectfile_path(pkgdir, strict = true) !== nothing
 
 function parsetomls(pkgdir::String)
-    manifestpath = Pkg.Operations.manifestfile_path(pkgdir, strict = true)
-    projectpath = Pkg.Operations.projectfile_path(pkgdir, strict = true)
+    manifestpath = manifestfile_path(pkgdir, strict = true)
+    projectpath = projectfile_path(pkgdir, strict = true)
     (project = _parsetoml(projectpath), manifest = _parsetoml(manifestpath))
 end
 
@@ -67,29 +66,29 @@ function _parsetoml(tomlpath)
     end
 end
 
+
 function with_sandbox_env(
     fn::Function,
     project::AbstractString = Base.active_project();
     copyall::Bool = false,
     extra_load_paths::Vector{<:AbstractString} = AbstractString[],
-    default_load_path = false,
-    tempdir = true,
+    default_load_path::Bool = false,
 )
     if isdir(project)
-        project = Pkg.Operations.projectfile_path(project, strict = true)
-        isnothing(project) && throw(ArgumentError("No project file found in $project"))
+        project = projectfile_path(project, strict = true)
+        isnothing(project) && error("No project file found in $project")
     end
 
     old_dir = pwd()
-    old_load_path = copy(LOAD_PATH)
+    old_load_path = deepcopy(LOAD_PATH)
     old_project = Base.active_project()
 
     mktempdir() do sandbox
         if copyall
             cpinto(dirname(project), sandbox)
         else
-            manifest = Pkg.Operations.manifestfile_path(dirname(project), strict = true)
-            !isnothing(manifest) && cp(manifest, joinpath(sandbox, basename(manifest)))
+            manifest = manifestfile_path(dirname(project), strict = true)
+            manifest !== nothing && cp(manifest, joinpath(sandbox, basename(manifest)))
             cp(project, joinpath(sandbox, basename(project)))
         end
 
@@ -121,8 +120,8 @@ end
 function envinfo(dstpath::AbstractString)
     mktempdir() do dir
         env = Pkg.Types.Context().env
-        Pkg.Types.write_project(env.project, joinpath(dir, "Project.toml"))
-        Pkg.Types.write_manifest(env.manifest, joinpath(dir, "Manifest.toml"))
+        write_project(env.project, joinpath(dir, "Project.toml"))
+        write_manifest(env.manifest, joinpath(dir, "Manifest.toml"))
         open(joinpath(dir, "versioninfo.txt"), "w") do io
             versioninfo(io)
         end

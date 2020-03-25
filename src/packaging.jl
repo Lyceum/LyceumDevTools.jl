@@ -22,18 +22,19 @@ function lyregister(
     package_repo = githttpsurl(package_repo) # always register https url
 
     with_tempdir() do
-        git = create_git_cmd(pairs(LY_GITCONFIG)...)
+        git = create_git_cmd(LY_GITCONFIG)
 
         run(`$git clone $package_repo $(pwd())`)
         run(`$git checkout master`)
-        success(`$git merge-base --is-ancestor $commit HEAD`) ||
-        error("$commit not found in master branch")
+        if !success(`$git merge-base --is-ancestor $commit HEAD`)
+            error("$commit not found in master branch")
+        end
         run(`$git checkout $commit`)
 
-        pkg = Pkg.Types.read_project(Pkg.Types.projectfile_path(pwd()))
+        pkg = Pkg.Types.read_project(projectfile_path(pwd()))
         registry_deps = map(reg -> reg.url, Pkg.Types.collect_registries())
 
-        LY_REGISTRY.url in registry_deps || error("$LY_REGISTRY not found in local registries")
+        LY_REGISTRY.url in registry_deps || error("Please add LyceumRegistry: $LY_REGISTRY")
 
         rbrn = register(
             package_repo,
@@ -46,28 +47,28 @@ function lyregister(
             branch = branch,
             kwargs...,
         )
+
         haskey(rbrn.metadata, "error") && error(rbrn.metadata["error"])
 
         return rbrn
     end
 end
 
-function incversion!(pkg::Union{Module,AbstractString}, args...; kwargs...)
+function incversion!(pkg::Union{Module,AbstractString}, which::Symbol; prerelease = :keep)
     pkg = pkg isa Module ? pkgdir(pkg) : pkg
     isdirty(pkg) && error("$pkg is dirty")
 
-    toml = parsetomls(pkg).project.dict
-    newver = incversion(toml["version"], args...; kwargs...)
-    toml["version"] = newver
-    tomlpath = Pkg.Operations.projectfile_path(pkg)
-    @info "Writing to $tomlpath"
-    open(tomlpath, "w") do io
-        Pkg.TOML.print(io, toml)
-    end
+    project = parsetomls(pkg).project.dict
+    newver = incversion(project["version"], which, prerelease = prerelease)
+    project["version"] = newver
+
+    projectfile = projectfile_path(pkg)
+    @info "Writing to $projectfile"
+    write_project(project, projectfile)
 
     git = create_git_cmd(LY_GITCONFIG)
-    run(`$git add Project.toml`)
     message = "New version: v$(newver)"
+    run(`$git add Project.toml`)
     run(`$git commit -qm $message`)
 
     return pkg

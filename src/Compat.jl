@@ -10,6 +10,7 @@ using Markdown: Markdown, Paragraph, Bold, Table, List, Header, HorizontalRule
 using Parameters
 using Pkg
 using Pkg.Types: VersionSpec, semver_spec
+using Pkg.Types: projectfile_path, manifestfile_path, write_project, write_manifest
 
 
 const BASE_PACKAGES = Set{Base.UUID}(x for x in keys(Pkg.Types.stdlibs()))
@@ -27,12 +28,12 @@ const COMPAT_LABELS = ["compat", "nochangelog"]
 
 
 Base.@kwdef struct RepoSpec
-    token::String
-    username::String
-    useremail::String
     reponame::String
-    masterbranch::String
-    compatbranch::String
+    username::String
+    token::String
+    masterbranch::String = DEFAULT_MASTERBRANCH
+    compatbranch::String = DEFAULT_COMPATBRANCH
+    gitconfig::Dict{String,String} = Dict{String, String}()
 end
 
 mutable struct CompatResult
@@ -44,6 +45,7 @@ mutable struct CompatResult
     new::Vector{Tuple{String,String}} # (name, new_compat)
     changed::Vector{Tuple{String,String,String}} # (name, old_compat, new_compat)
     unchanged::Vector{Tuple{String,String}} # (name, old_compat)
+
     function CompatResult()
         new(
             false,
@@ -61,14 +63,14 @@ end
 
 function ghactions(; kwargs...)
     spec = RepoSpec(
-        token = ENV["COMPAT_TOKEN"],
-        username = ENV["COMPAT_USERNAME"],
-        useremail = ENV["COMPAT_USEREMAIL"],
         reponame = ENV["GITHUB_REPOSITORY"],
+        username = ENV["COMPAT_USERNAME"],
+        token = ENV["COMPAT_TOKEN"],
         masterbranch = get(ENV, "COMPAT_MASTERBRANCH", DEFAULT_MASTERBRANCH),
         compatbranch = get(ENV, "COMPAT_COMPATBRANCH", DEFAULT_COMPATBRANCH),
     )
-    return update_tomls!(spec; kwargs...)
+    update_tomls!(spec; kwargs...)
+    return nothing
 end
 
 function update_tomls!(
@@ -82,7 +84,7 @@ function update_tomls!(
     masterbranch = rspec.masterbranch
     compatbranch = rspec.compatbranch
 
-    gitcmd = create_git_cmd("user.name" => rspec.username, "user.email" => rspec.useremail)
+    gitcmd = create_git_cmd(rspec.gitconfig)
     @debug "Git command: $gitcmd"
 
     with_tempdir() do
@@ -117,32 +119,34 @@ function update_tomls!(
         )
 
         if shouldpush && !dry_run
-            project = Pkg.Types.projectfile_path(pwd(), strict = true)
+            project = Pkg.Types.projectfile_path(pwd())
             @debug "Project file: $project"
             run(`$gitcmd add $project`)
 
             if result.manifest_updated
-                manifest = Pkg.Types.manifestfile_path(pwd(), strict = true)
+                manifest = Pkg.Types.manifestfile_path(pwd())
                 @debug "Manifest file: $manifest"
                 run(`$gitcmd add $manifest`)
             end
 
             title = "New compat entries"
             body = string(format_message(result))
-            run(`$gitcmd commit -m $title`)
 
+            run(`$gitcmd commit -m $title`)
             run(`$gitcmd push --force -u origin $compatbranch`)
 
-            params = Dict(
-                "title" => title,
-                "base" => masterbranch,
-                "head" => compatbranch,
-                "body" => body,
-                "labels" => COMPAT_LABELS,
-            )
             existing_pr = find_existing_pr(ghrepo, auth)
-            if isnothing(existing_pr)
+            if existing_pr === nothing
+                params = Dict(
+                    "title" => title,
+                    "body" => body,
+                    "labels" => COMPAT_LABELS,
+                    "base" => masterbranch,
+                    "head" => compatbranch,
+                )
                 pr = create_pull_request(ghrepo; params = params, auth = auth)
+                # NOTE: Adding labels when PR is created doesn't appear to work so
+                # we edit it after creation.
                 edit_issue(
                     ghrepo,
                     pr,
@@ -150,7 +154,7 @@ function update_tomls!(
                     auth = auth,
                 )
             else
-                params = Dict("body" => body, "labels" => COMPAT_LABELS)
+                params = Dict("title" => title, "body" => body, "labels" => COMPAT_LABELS)
                 edit_issue(ghrepo, existing_pr, params = params, auth = auth)
             end
         else
@@ -164,7 +168,6 @@ function update_tomls!(
         return result
     end
 end
-
 
 function update_tomls!(
     pkgdir::AbstractString;
@@ -222,6 +225,7 @@ function update_tomls!(
 
         if haskey(old_project["compat"], name)
             old_compat = format_compat(old_project["compat"][name], drop_patch)
+
             if keep_old_compat
                 new_compat = format_compat(old_compat, new_version, drop_patch)
             else
@@ -253,30 +257,14 @@ function update_tomls!(
         end
     end
 
-    project_filename = basename(Pkg.Operations.projectfile_path(pkgdir, strict = true))
-    open(joinpath(pkgdir, project_filename), "w") do io
-        Pkg.TOML.print(
-            io,
-            new_project,
-            sorted = true, # TODO
-            by = key -> (Pkg.Types.project_key_order(key), key),
-        )
-    end
-
-    if update_manifest
-        manifestpath = Pkg.Operations.manifestfile_path(pkgdir, strict = true)
-        if !isnothing(manifestpath)
-            open(joinpath(pkgdir, basename(manifestpath)), "w") do io
-                Pkg.TOML.print(io, new_manifest) # TODO sort
-            end
-        end
-    end
+    write_project(new_project, projectfile_path(pkgdir))
+    result.manifest_updated && write_manifest(new_manifest, manifestfile_path(pkgdir))
 
     return result
 end
 
 
-function get_old_tomls(pkgdir)
+function get_old_tomls(pkgdir::AbstractString)
     with_sandbox_env(pkgdir) do
         # Create/resolve manifest if one doesn't already exist,
         Pkg.instantiate()
@@ -297,16 +285,13 @@ end
 
 function purge_compat!(pkgdir::AbstractString)
     cd(pkgdir) do
-        tomls = parsetomls(pwd())
-        if haskey(tomls.project.dict, "compat")
-            for pkg in keys(tomls.project.dict["compat"])
-                pkg != "julia" && delete!(tomls.project.dict["compat"], pkg)
+        project = parsetomls(pwd()).project.dict
+        if haskey(project, "compat")
+            for pkg in keys(project["compat"])
+                pkg != "julia" && delete!(project["compat"], pkg)
             end
         end
-        projectpath = Pkg.Operations.projectfile_path(pwd(), strict = true)
-        open(projectpath, "w") do io
-            Pkg.TOML.print(io, tomls.project.dict)
-        end
+        write_project(project, projectfile_path(pwd()))
     end
 end
 
@@ -315,11 +300,13 @@ isstdlib(uuid::Base.UUID) = uuid in BASE_PACKAGES
 isjll(name::AbstractString) = endswith(lowercase(strip(name)), lowercase(strip("_jll"))) # TODO check for Artifacts.toml?
 
 no_prerelease_or_build(v::VersionNumber) = v.build == v.prerelease == ()
-no_prerelease_or_build(v) = no_prerelease_or_build(VersionNumber(v))
+no_prerelease_or_build(v::AbstractString) = no_prerelease_or_build(VersionNumber(v))
 
 function format_compat(v::VersionNumber, drop_patch::Bool)
-    no_prerelease_or_build(v) ||
-    throw(ArgumentError("version cannot have build or prerelease. Got: $v"))
+    if !no_prerelease_or_build(v)
+        throw(ArgumentError("version cannot have build or prerelease. Got: $v"))
+    end
+
     if v.patch == 0 || drop_patch
         if v.minor == 0
             if v.major == 0 # v.major is 0, v.minor is 0, v.patch is 0
@@ -424,7 +411,6 @@ function format_message(r::CompatResult)
         push!(msg, Header("Skipped (multiple packages with the same name)", 3))
         list = List()
         for (name, uuids) in r.multiple_entries
-            #push!(list.items, [Paragraph(name), List(Paragraph.(uuids))])
             push!(list.items, [Paragraph("$name UUIDs:"), List(Paragraph.(uuids))])
         end
         push!(msg, list)
@@ -456,8 +442,11 @@ function format_message(r::CompatResult)
         end
         push!(msg, table)
     end
+
     push!(msg, HorizontalRule())
+    # magic bytes for identifying if an existing PR came from LyceumDevTools.Compat
     push!(msg, Paragraph(COMPAT_UUID))
+
     Markdown.MD(msg...)
 end
 

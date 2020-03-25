@@ -2,16 +2,16 @@ module LyceumDevTools
 
 using Base: UUID
 using Base64
-using Pkg
-using LibGit2: LibGit2
-
-using Registrator: Registrator
-using JuliaFormatter: format_file, format
-using RegistryTools: register
-using PkgTemplates: Template, generate
 using GitHub: GitHub, GitHubAPI, Repo, AnonymousAuth, Authorization
 using GitHub: authenticate_headers!, authenticate, github2json, api_uri
 using HTTP: HTTP
+using JuliaFormatter: format_file, format
+using LibGit2: LibGit2
+using Pkg
+using Pkg.Types: projectfile_path, manifestfile_path, write_project, write_manifest
+using PkgTemplates: Template, generate
+using Registrator: Registrator
+using RegistryTools: register
 
 
 include("configs.jl")
