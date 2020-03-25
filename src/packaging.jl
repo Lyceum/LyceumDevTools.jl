@@ -31,17 +31,15 @@ function lyregister(
         run(`$git checkout $commit`)
 
         pkg = Pkg.Types.read_project(Pkg.Types.projectfile_path(pwd()))
-        #tree_hash = bytes2hex(Pkg.GitTools.tree_hash(pwd()))
         registry_deps = map(reg -> reg.url, Pkg.Types.collect_registries())
 
-        LY_REGISTRY in registry_deps || error("$LY_REGISTRY not found in local registries")
+        LY_REGISTRY.url in registry_deps || error("$LY_REGISTRY not found in local registries")
 
         rbrn = register(
             package_repo,
             pkg,
-            treehash(pwd());
-            #tree_hash;
-            registry = LY_REGISTRY,
+            string(treehash(pwd()));
+            registry = LY_REGISTRY.url,
             registry_deps = registry_deps,
             gitconfig = LY_GITCONFIG,
             push = push,
