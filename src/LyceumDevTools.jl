@@ -9,7 +9,8 @@ using Registrator: Registrator
 using JuliaFormatter: format_file, format
 using RegistryTools: register
 using PkgTemplates: Template, generate
-using GitHub: GitHub, authenticate_headers!, AnonymousAuth, github2json, api_uri, GitHubAPI
+using GitHub: GitHub, GitHubAPI, Repo, AnonymousAuth, Authorization
+using GitHub: authenticate_headers!, authenticate, github2json, api_uri
 using HTTP: HTTP
 
 

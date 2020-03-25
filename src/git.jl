@@ -21,7 +21,8 @@ gitauthurl(user, token, fullname) = "https://$(user):$(token)@github.com/$(fulln
 isdirty(repo_path::AbstractString) = LibGit2.isdirty(LibGit2.GitRepo(repo_path))
 
 function repository_dispatch(
-    repo,
+    repo::Repo,
+    auth::Authorization,
     event_type::AbstractString = "dispatch";
     client_payload::Dict = Dict(),
     kwargs...,
