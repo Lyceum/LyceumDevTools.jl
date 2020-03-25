@@ -236,6 +236,7 @@ function update_tomls!(
                 push!(result.changed, (name, old_compat, new_compat))
             end
         else
+            new_compat = format_compat(new_version, drop_patch)
             push!(result.new, (name, new_compat))
         end
 
