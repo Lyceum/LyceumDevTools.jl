@@ -6,7 +6,7 @@ function githttpsurl(url::AbstractString)
     LibGit2.git_url(scheme = "https", host = m[:host], path = m[:path])
 end
 
-create_git_cmd(config::AbstractDict; kwargs...) = create_git_cmd(pairs(config); kwargs...)
+create_git_cmd(config::AbstractDict; kwargs...) = create_git_cmd(pairs(config)...; kwargs...)
 function create_git_cmd(config::Pair...; path = nothing)
     cmd = isnothing(path) ? ["git"] : ["git", "-C", path]
     for (n, v) in config
