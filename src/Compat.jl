@@ -3,14 +3,13 @@ module Compat
 using ..LyceumDevTools: gitauthurl, create_git_cmd
 using ..LyceumDevTools: with_tempdir, with_sandbox_env, parsetomls
 
-using Pkg
-using Pkg.Types: VersionSpec, semver_spec
 using Dates
-using Markdown: Markdown, Paragraph, Bold, Table, List, Header, HorizontalRule
-
 using GitHub: Repo, Authorization, PullRequest
 using GitHub: repo, authenticate, create_pull_request, edit_issue, pull_requests
+using Markdown: Markdown, Paragraph, Bold, Table, List, Header, HorizontalRule
 using Parameters
+using Pkg
+using Pkg.Types: VersionSpec, semver_spec
 
 
 const BASE_PACKAGES = Set{Base.UUID}(x for x in keys(Pkg.Types.stdlibs()))
@@ -25,6 +24,7 @@ const DEF_DROP_PATCH = true
 const DEF_ADD_JULIA_COMPAT = true
 
 const COMPAT_LABELS = ["compat", "nochangelog"]
+
 
 Base.@kwdef struct RepoSpec
     token::String
@@ -57,6 +57,7 @@ mutable struct CompatResult
         )
     end
 end
+
 
 function ghactions(; kwargs...)
     spec = RepoSpec(
