@@ -32,7 +32,5 @@ jobs:
       - name: Update compat
         run: julia --color=yes -e 'using LyceumDevTools; LyceumDevTools.Compat.ghactions()'
         env:
-          COMPAT_TOKEN: ${{ secrets.LYCEUMBOT_PAT }}
           COMPAT_USERNAME: lyceumbot
-          COMPAT_USEREMAIL: lyceumdevs@gmail.com
-
+          COMPAT_TOKEN: ${{ secrets.LYCEUMBOT_PAT }}
