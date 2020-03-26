@@ -82,6 +82,7 @@ function update_tomls!(rspec::RepoSpec; overwrite::Bool = true, kwargs...)
         ghrepo = repo(rspec.reponame, auth = auth)
 
         url = gitauthurl(rspec.username, rspec.token, rspec.reponame)
+        @info url
         run(`$gitcmd clone $url repo`)
         cd("repo")
 
@@ -237,6 +238,7 @@ function update_tomls!(
 
     @info "HERE"
     oldctx = Context(env = EnvCache(projectfile_path(pkgdir)))
+    Pkg.instantiate(oldctx)
     Pkg.resolve(oldctx)
     @info "RESOLVE1"
 
