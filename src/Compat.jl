@@ -82,7 +82,6 @@ function update_tomls!(rspec::RepoSpec; overwrite::Bool = true, kwargs...)
         ghrepo = repo(rspec.reponame, auth = auth)
 
         url = gitauthurl(rspec.username, rspec.token, rspec.reponame)
-        @info url
         run(`$gitcmd clone $url repo`)
         cd("repo")
 
@@ -236,11 +235,9 @@ function update_tomls!(
 
     result = CompatResult()
 
-    @info "HERE"
     oldctx = Context(env = EnvCache(projectfile_path(pkgdir)))
     Pkg.instantiate(oldctx)
     Pkg.resolve(oldctx)
-    @info "RESOLVE1"
 
     newctx = Context(env = EnvCache(projectfile_path(pkgdir)))
     for (pkgname, entry) in newctx.env.project.compat
@@ -250,9 +247,7 @@ function update_tomls!(
         # e.g "0.2, 0.3, 0.5" --> ">= 0.2.0"
         newctx.env.project.compat[pkgname] = ">= $(lowerbound(semver_spec(entry)))"
     end
-    @info "UP"
     Pkg.API.up(newctx, level=UPLEVEL_MAJOR, mode=PKGMODE_PROJECT, update_registry=true)
-    @info "DONEUP"
 
 
     for k in keys(oldctx.env.project.other)
@@ -305,10 +300,8 @@ function update_tomls!(
     end
 
     # Sanity check: resolve with updated compat entries
-    @info "RESOLVE2"
     newctx = Context(env = EnvCache(projectfile_path(pkgdir)))
     Pkg.resolve(newctx)
-    @info "DONE"
     # Sanity check: make sure we didn't downgrade any packages below their old compat entry
     for (pkgname, oldentry) in oldctx.env.project.compat
         pkgname == "julia" && continue
