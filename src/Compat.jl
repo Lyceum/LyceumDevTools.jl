@@ -1,30 +1,31 @@
 module Compat
 
-using ..LyceumDevTools: gitauthurl, create_git_cmd
-using ..LyceumDevTools: with_tempdir, with_sandbox_env, parsetomls
+using ..LyceumDevTools: gitauthurl, create_git_cmd, with_tempdir
+
+using GitHub: Repo, Authorization, PullRequest, Branch
+using GitHub: repo, authenticate, create_pull_request, edit_issue, pull_requests
 
 using Dates
-using GitHub: Repo, Authorization, PullRequest
-using GitHub: repo, authenticate, create_pull_request, edit_issue, pull_requests
 using Markdown: Markdown, Paragraph, Bold, Table, List, Header, HorizontalRule
-using Parameters
+
 using Pkg
-using Pkg.Types: VersionSpec, semver_spec
+using Pkg.Types: VersionSpec, VersionBound, semver_spec
+using Pkg.Types: Context, EnvCache
 using Pkg.Types: projectfile_path, manifestfile_path, write_project, write_manifest
 
 
-const BASE_PACKAGES = Set{Base.UUID}(x for x in keys(Pkg.Types.stdlibs()))
+export RepoSpec, CompatResult, update_tomls!
+
+
+# "magic bytes" embedded in pull requests to identify if a preexisiting PR
 const COMPAT_UUID = "0062fa4e-0639-437d-8ed2-9da17d9c0af2"
+# For TagBot
+const PR_LABELS = ["compat", "nochangelog"]
+
+const BASE_PACKAGES = Set{Base.UUID}(x for x in keys(Pkg.Types.stdlibs()))
 
 const DEFAULT_MASTERBRANCH = "master"
 const DEFAULT_COMPATBRANCH = "compat"
-
-const DEF_KEEP_OLD_COMPAT = true
-const DEF_UPDATE_MANIFEST = true
-const DEF_DROP_PATCH = true
-const DEF_ADD_JULIA_COMPAT = true
-
-const COMPAT_LABELS = ["compat", "nochangelog"]
 
 
 Base.@kwdef struct RepoSpec
@@ -37,25 +38,19 @@ Base.@kwdef struct RepoSpec
 end
 
 mutable struct CompatResult
-    manifest_updated::Bool
-    new_compat_section::Bool
-    new_julia_compat::Union{String,Nothing}
-    multiple_entries::Vector{Tuple{String,Vector{String}}} # (name, UUIDs)
-    bad_version::Vector{Tuple{String,String}} # (name, version)
     new::Vector{Tuple{String,String}} # (name, new_compat)
-    changed::Vector{Tuple{String,String,String}} # (name, old_compat, new_compat)
+    updated::Vector{Tuple{String,String,String}} # (name, old_compat, new_compat)
     unchanged::Vector{Tuple{String,String}} # (name, old_compat)
+    julia_compat::Union{String,Nothing}
+    manifest_updated::Bool
 
     function CompatResult()
         new(
-            false,
-            false,
-            nothing,
-            Vector{Tuple{String,Vector{String}}}(),
-            Vector{Tuple{String,String}}(),
             Vector{Tuple{String,String}}(),
             Vector{Tuple{String,String,String}}(),
             Vector{Tuple{String,String}}(),
+            nothing,
+            false
         )
     end
 end
@@ -75,14 +70,7 @@ function ghactions(; kwargs...)
     return nothing
 end
 
-function update_tomls!(
-    rspec::RepoSpec;
-    keep_old_compat::Bool = DEF_KEEP_OLD_COMPAT,
-    update_manifest::Bool = DEF_UPDATE_MANIFEST,
-    drop_patch::Bool = DEF_DROP_PATCH,
-    add_julia_compat::Bool = DEF_ADD_JULIA_COMPAT,
-    dry_run::Bool = false,
-)
+function update_tomls!(rspec::RepoSpec; kwargs...)
     masterbranch = rspec.masterbranch
     compatbranch = rspec.compatbranch
 
@@ -100,35 +88,27 @@ function update_tomls!(
         run(`$gitcmd checkout $masterbranch`)
         run(`$gitcmd pull`)
         # overwrite existing compat branch if it exists
+        # TODO overwrite flag
         run(`$gitcmd checkout -B $compatbranch`)
 
-        result = update_tomls!(
-            pwd(),
-            keep_old_compat = keep_old_compat,
-            update_manifest = update_manifest,
-            drop_patch = drop_patch,
-            add_julia_compat = add_julia_compat,
-        )
+        result = update_tomls!(pwd(); kwargs...)
 
         shouldpush = (
-            result.manifest_updated
-            || result.new_compat_section
-            || result.new_julia_compat !== nothing
-            || !isempty(result.multiple_entries)
-            || !isempty(result.bad_version)
-            || !isempty(result.new)
-            || !isempty(result.changed)
+            !isempty(result.new)
+            || !isempty(result.updated)
+            || result.manifest_updated
+            || result.julia_compat !== nothing
         )
 
-        if shouldpush && !dry_run
-            project = Pkg.Types.projectfile_path(pwd())
-            @debug "Project file: $project"
-            run(`$gitcmd add $project`)
+        if shouldpush
+            project_file = projectfile_path(pwd())
+            @debug "Project file: $project_file"
+            run(`$gitcmd add $project_file`)
 
             if result.manifest_updated
-                manifest = Pkg.Types.manifestfile_path(pwd())
-                @debug "Manifest file: $manifest"
-                run(`$gitcmd add $manifest`)
+                manifest_file = manifestfile_path(pwd())
+                @debug "Manifest file: $manifest_file"
+                run(`$gitcmd add $manifest_file`)
             end
 
             title = "New compat entries"
@@ -137,175 +117,209 @@ function update_tomls!(
             run(`$gitcmd commit -m $title`)
             run(`$gitcmd push --force -u origin $compatbranch`)
 
-            existing_pr = find_existing_pr(ghrepo, auth)
+            existing_pr = find_existing_pr(ghrepo, auth, compatbranch, masterbranch)
             if existing_pr === nothing
                 params = Dict(
                     "title" => title,
                     "body" => body,
-                    "labels" => COMPAT_LABELS,
-                    "base" => masterbranch,
+                    "labels" => PR_LABELS,
                     "head" => compatbranch,
+                    "base" => masterbranch,
                 )
                 pr = create_pull_request(ghrepo; params = params, auth = auth)
                 # NOTE: Adding labels when PR is created doesn't appear to work so
                 # we edit it after creation.
-                edit_issue(
-                    ghrepo,
-                    pr,
-                    params = Dict("labels" => COMPAT_LABELS),
-                    auth = auth,
-                )
+                edit_issue(ghrepo, pr, params = Dict("labels" => PR_LABELS), auth = auth)
             else
-                params = Dict("title" => title, "body" => body, "labels" => COMPAT_LABELS)
+                params = Dict("title" => title, "body" => body, "labels" => PR_LABELS)
                 edit_issue(ghrepo, existing_pr, params = params, auth = auth)
             end
         else
-            if dry_run
-                @warn "Dry Run"
-            else
-                @info "No changes."
-            end
+            @info "No changes."
         end
 
         return result
     end
 end
 
+function find_existing_pr(repo::Repo, auth::Authorization, head::String, base::String)
+    params = Dict(
+        "state" => "open",
+        "head" => "$(repo.owner.login):$head",
+        "base" => base,
+        "per_page" => 50,
+        "page" => 1
+    )
+    prs = Vector{PullRequest}()
+
+    page_prs, page_data = pull_requests(repo, params = params, auth = auth)
+    while true
+        append!(prs, page_prs)
+        if haskey(page_data, "next")
+            page_prs, page_data = pull_requests(repo, auth = auth, start_page = page_data["next"])
+        else
+            break
+        end
+    end
+
+    if isempty(prs)
+        @debug "No PR found"
+        return nothing
+    elseif length(prs) == 1
+        pr = first(prs)
+        if occursin(COMPAT_UUID, pr.body)
+            @info "Found existing PR"
+            return pr
+        else
+            error("PR already exists but it wasn't created by Compat. Aborting.")
+        end
+    else
+        error("More than one compat PR found. This shouldn't happen.")
+    end
+end
+
+function format_message(r::CompatResult)
+    msg = []
+    push!(msg, Header("Summary", 3))
+
+    misc = List()
+    if r.manifest_updated
+        push!(misc.items, Paragraph("Updated Manifest"))
+    end
+    if r.julia_compat !== nothing
+        push!(misc.items, Paragraph("Updated compat entry for Julia: v$(r.julia_compat)"))
+    end
+    push!(misc.items, Paragraph("$(length(r.new)) new compat entries"))
+    push!(misc.items, Paragraph("$(length(r.updated)) updated compat entries"))
+    push!(misc.items, Paragraph("$(length(r.unchanged)) unchanged compat entries"))
+    push!(msg, misc)
+
+    if !isempty(r.new)
+        push!(msg, Header("New Compat Entries", 3))
+        titles = map(Bold, ["Package", "New Compat"])
+        table = Markdown.Table([titles], [:l, :c])
+        for (name, new) in r.new
+            push!(table.rows, [name, new])
+        end
+        push!(msg, table)
+    end
+
+    if !isempty(r.updated)
+        push!(msg, Header("Updated Compat Entries", 3))
+        titles = map(Bold, ["Package", "Old Compat", "New Compat"])
+        table = Markdown.Table([titles], [:l, :c, :c])
+        for (name, old, new) in r.updated
+            push!(table.rows, [name, old, new])
+        end
+        push!(msg, table)
+    end
+
+    # magic bytes for identifying if an existing PR came from LyceumDevTools.Compat
+    push!(msg, HorizontalRule())
+    push!(msg, Paragraph("Last updated: $(now())"))
+    push!(msg, Paragraph("Magic Bytes: $COMPAT_UUID"))
+
+    Markdown.MD(msg...)
+end
+
 function update_tomls!(
     pkgdir::AbstractString;
-    keep_old_compat::Bool = DEF_KEEP_OLD_COMPAT,
-    update_manifest::Bool = DEF_UPDATE_MANIFEST,
-    drop_patch::Bool = DEF_DROP_PATCH,
-    add_julia_compat::Bool = DEF_ADD_JULIA_COMPAT,
+    keep_old_compat::Bool = true,
+    update_manifest::Bool = true,
+    drop_patch::Bool = true,
+    update_julia_compat::Bool = false,
 )
-    @debug "Compat options" keep_old_compat update_manifest drop_patch add_julia_compat
+    @debug "Compat options" keep_old_compat update_manifest drop_patch update_julia_compat
 
     result = CompatResult()
 
-    old_tomls = get_old_tomls(pkgdir)
-    old_project = old_tomls.project.dict
-    old_manifest = old_tomls.manifest.dict
+    oldctx = Context(env = EnvCache(projectfile_path(pkgdir)))
+    Pkg.resolve(oldctx)
 
-    new_tomls = get_new_tomls(pkgdir)
-    new_project = new_tomls.project.dict
-    new_manifest = new_tomls.manifest.dict
+    newctx = Context(env = EnvCache(projectfile_path(pkgdir)))
+    for (pkgname, entry) in newctx.env.project.compat
+        pkgname == "julia" && continue
+        # Prevent downgrading any deps below the lower bound of their current compat entry
+        # by replacing each compat entry with an inequality specifier
+        # e.g "0.2, 0.3, 0.5" --> ">= 0.2.0"
+        newctx.env.project.compat[pkgname] = ">= $(lowerbound(semver_spec(entry)))"
+    end
+    Pkg.API.up(newctx, level=UPLEVEL_MAJOR, mode=PKGMODE_PROJECT, update_registry=true)
 
-    for k in keys(old_project)
-        if k != "compat" && get(old_project, k, nothing) != get(new_project, k, nothing)
-            error("TOML mismatch key $k. Please file a bug report.")
+    for k in keys(oldctx.env.project.other)
+        if k != "compat" && oldctx.env.project.other[k] != newctx.env.project.other[k]
+            error("Corrupted project. Please file a bug report.")
         end
     end
 
-    result.manifest_updated = update_manifest && old_manifest != new_manifest
+    deps = oldctx.env.project.deps
+    oldcompat = oldctx.env.project.compat
+    newcompat = newctx.env.project.compat
+    newmanifest = newctx.env.manifest
+    for (pkgname, uuid) in deps
+        (isstdlib(uuid) || isjll(pkgname)) && continue
 
-    if !haskey(old_project, "compat")
-        old_project["compat"] = Dict{Any,Any}()
-        new_project["compat"] = Dict{Any,Any}()
-        result.new_compat_section = true
-    end
+        newversion = newmanifest[uuid].version
 
-    if add_julia_compat && !haskey(old_project["compat"], "julia")
-        julia_compat = format_compat(VERSION, drop_patch)
-        new_project["compat"]["julia"] = julia_compat
-        result.new_julia_compat = julia_compat
-    end
-
-    for (name, uuid) in pairs(old_project["deps"])
-        (isstdlib(uuid) || isjll(name)) && continue
-
-        if length(new_manifest[name]) > 1
-            entries = new_manifest[name]
-            push!(result.multiple_entries, (name, map(x -> x["uuid"], entries)))
-            continue
-        end
-
-        new_version = VersionNumber(first(new_manifest[name])["version"])
-        if !no_prerelease_or_build(new_version)
-            push!(result.bad_version, (name, string(new_version)))
-            continue
-        end
-
-        if haskey(old_project["compat"], name)
-            old_compat = format_compat(old_project["compat"][name], drop_patch)
+        if haskey(oldcompat, pkgname)
+            oldentry = oldcompat[pkgname]
 
             if keep_old_compat
-                new_compat = format_compat(old_compat, new_version, drop_patch)
+                newentry = format_compat(oldentry, newversion, drop_patch)
             else
-                new_compat = format_compat(new_version, drop_patch)
+                newentry = format_compat(newversion, drop_patch)
             end
 
-            if semver_spec(old_compat) == semver_spec(new_compat)
-                # Same semver spec, but keep old formatting
+            if semver_spec(oldentry) == semver_spec(newentry)
+                # Same semver spec, but keep old entry formatting
                 # TODO change this to provide a canoncial/compressed compat entry
-                new_compat = old_compat
-                push!(result.unchanged, (name, old_compat))
+                newentry = oldentry
+                push!(result.unchanged, (pkgname, oldentry))
             else
-                push!(result.changed, (name, old_compat, new_compat))
+                push!(result.updated, (pkgname, oldentry, newentry))
             end
         else
-            new_compat = format_compat(new_version, drop_patch)
-            push!(result.new, (name, new_compat))
+            newentry = format_compat(newversion, drop_patch)
+            push!(result.new, (pkgname, newentry))
         end
 
-        new_project["compat"][name] = new_compat
+        newcompat[pkgname] = newentry
     end
 
-    # Sanity check
-    for (name, compat) in pairs(new_project["compat"])
-        try
-            @assert VersionSpec(semver_spec(compat)) isa VersionSpec
-        catch
-            error("Invalid compat $compat for $name. Please file a bug report.")
+    if haskey(oldcompat, "julia") && !update_julia_compat
+        newcompat["julia"] = oldcompat["julia"]
+    else
+        newcompat["julia"] = format_compat(VERSION, drop_patch)
+        if get(oldcompat, "julia", nothing) != newcompat["julia"]
+            result.julia_compat = newcompat["julia"]
         end
     end
 
-    write_project(new_project, projectfile_path(pkgdir))
-    result.manifest_updated && write_manifest(new_manifest, manifestfile_path(pkgdir))
+    # Sanity check: resolve with updated compat entries
+    newctx = Context(env = EnvCache(projectfile_path(pkgdir)))
+    Pkg.resolve(newctx)
+    # Sanity check: make sure we didn't downgrade any packages below their old compat entry
+    for (pkgname, oldentry) in oldctx.env.project.compat
+        pkgname == "julia" && continue
+        uuid = newctx.env.project.deps[pkgname]
+        if newctx.env.manifest[uuid].version < lowerbound(semver_spec(oldentry))
+            error("Downgraded $pkgname below lower bound of old compat entry. Please file a bug report.")
+        end
+    end
+
+    result.manifest_updated = update_manifest && oldctx.env.manifest != newmanifest
+
+    Pkg.Types.write_env(newctx.env)
 
     return result
-end
-
-
-function get_old_tomls(pkgdir::AbstractString)
-    with_sandbox_env(pkgdir) do
-        # Create/resolve manifest if one doesn't already exist,
-        Pkg.instantiate()
-        Pkg.resolve()
-        return parsetomls(pwd())
-    end
-end
-
-function get_new_tomls(pkgdir::AbstractString)
-    with_sandbox_env(pkgdir) do
-        purge_compat!(pwd())
-        Pkg.instantiate()
-        Pkg.resolve()
-        Pkg.update()
-        return parsetomls(pwd())
-    end
-end
-
-function purge_compat!(pkgdir::AbstractString)
-    cd(pkgdir) do
-        project = parsetomls(pwd()).project.dict
-        if haskey(project, "compat")
-            for pkg in keys(project["compat"])
-                pkg != "julia" && delete!(project["compat"], pkg)
-            end
-        end
-        write_project(project, projectfile_path(pwd()))
-    end
 end
 
 isstdlib(name::AbstractString) = isstdlib(Base.UUID(name))
 isstdlib(uuid::Base.UUID) = uuid in BASE_PACKAGES
 isjll(name::AbstractString) = endswith(lowercase(strip(name)), lowercase(strip("_jll"))) # TODO check for Artifacts.toml?
 
-no_prerelease_or_build(v::VersionNumber) = v.build == v.prerelease == ()
-no_prerelease_or_build(v::AbstractString) = no_prerelease_or_build(VersionNumber(v))
-
 function format_compat(v::VersionNumber, drop_patch::Bool)
-    if !no_prerelease_or_build(v)
+    if !(v.build == v.prerelease == ())
         throw(ArgumentError("version cannot have build or prerelease. Got: $v"))
     end
 
@@ -330,7 +344,7 @@ function format_compat(compat::AbstractString, drop_patch::Bool)
         return format_compat(VersionNumber(compat))
     catch
         try
-            spec = Pkg.Types.VersionSpec(Pkg.Types.semver_spec(compat)) # check to make sure valid
+            spec = VersionSpec(semver_spec(compat)) # check to make sure valid
             @assert spec isa VersionSpec
             return String(strip(compat))
         catch
@@ -339,117 +353,15 @@ function format_compat(compat::AbstractString, drop_patch::Bool)
     end
 end
 
-function majorminorequal(x::AbstractString, y::AbstractString)
-    x = String(strip(x))
-    y = String(strip(y))
-    if startswith(x, '^')
-        x = String(strip(split(x, '^')[2]))
-    end
-    if startswith(y, '^')
-        y = String(strip(split(y, '^')[2]))
-    end
-    try
-        xver = VersionNumber(x)
-        yver = VersionNumber(y)
-        return xver.major == yver.major && xver.minor == yver.minor
-    catch
-        return false
-    end
-end
-
 function format_compat(old, new, drop_patch)
     "$(format_compat(old, drop_patch)), $(format_compat(new, drop_patch))"
 end
 
-function find_existing_pr(repo::Repo, auth::Authorization)
-    params = Dict("state" => "open", "per_page" => 100, "page" => 1)
-    prs, page_data = pull_requests(repo; auth = auth, params = params, page_limit = 100)
-    compat_prs = Vector{PullRequest}()
+lowerbound(spec::VersionSpec) = minimum(r -> bound2ver(r.lower), spec.ranges)
 
-    while true
-        for pr in prs
-            occursin(COMPAT_UUID, pr.body) && push!(compat_prs, pr)
-        end
-        if haskey(page_data, "next")
-            prs, page_data = pull_requests(
-                repo;
-                auth = auth,
-                page_limit = 100,
-                start_page = page_data["next"],
-            )
-        else
-            break
-        end
-    end
-
-    if isempty(compat_prs)
-        @debug "No PR found"
-        return nothing
-    elseif length(compat_prs) == 1
-        @debug "Found existing PR"
-        return first(compat_prs)
-    else
-        error("More than one compat PR found. This shouldn't happen.")
-    end
-end
-
-function format_message(r::CompatResult)
-    msg = []
-    push!(msg, Header("Compat Update", 2))
-
-    misc = List()
-    if r.manifest_updated
-        push!(misc.items, Paragraph("Updated Manifest"))
-    end
-    if r.new_compat_section
-        push!(misc.items, Paragraph("Added new compat section"))
-    end
-    if r.new_julia_compat !== nothing
-        push!(misc.items, Paragraph("Added compat entry for Julia: v$(r.new_julia_compat)"))
-    end
-    !isempty(misc.items) && push!(msg, misc)
-
-    if !isempty(r.multiple_entries)
-        push!(msg, Header("Skipped (multiple packages with the same name)", 3))
-        list = List()
-        for (name, uuids) in r.multiple_entries
-            push!(list.items, [Paragraph("$name UUIDs:"), List(Paragraph.(uuids))])
-        end
-        push!(msg, list)
-    end
-    if !isempty(r.bad_version)
-        push!(msg, Header("Skipped (new version has build or prerelease specifier)", 3))
-        titles = map(Bold, ["Package", "New Version"])
-        table = Markdown.Table([titles], [:l, :c])
-        for (name, new) in r.bad_version
-            push!(table.rows, [name, new])
-        end
-        push!(msg, table)
-    end
-    if !isempty(r.new)
-        push!(msg, Header("New", 3))
-        titles = map(Bold, ["Package", "New Compat"])
-        table = Markdown.Table([titles], [:l, :c])
-        for (name, new) in r.new
-            push!(table.rows, [name, new])
-        end
-        push!(msg, table)
-    end
-    if !isempty(r.changed)
-        push!(msg, Header("Updated", 3))
-        titles = map(Bold, ["Package", "Old Compat", "New Compat"])
-        table = Markdown.Table([titles], [:l, :c, :c])
-        for (name, old, new) in r.changed
-            push!(table.rows, [name, old, new])
-        end
-        push!(msg, table)
-    end
-
-    push!(msg, HorizontalRule())
-    # magic bytes for identifying if an existing PR came from LyceumDevTools.Compat
-    push!(msg, Paragraph(COMPAT_UUID))
-
-    Markdown.MD(msg...)
+function bound2ver(bound::VersionBound)
+    bound.n == 0 && error("bound.n must be > 0 to convert to VersionNumber")
+    return VersionNumber(bound[1], bound[2], bound[3])
 end
 
 end # module
