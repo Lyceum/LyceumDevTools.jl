@@ -70,7 +70,7 @@ function ghactions(; kwargs...)
     return nothing
 end
 
-function update_tomls!(rspec::RepoSpec; kwargs...)
+function update_tomls!(rspec::RepoSpec; overwrite::Bool = true, kwargs...)
     masterbranch = rspec.masterbranch
     compatbranch = rspec.compatbranch
 
@@ -87,9 +87,11 @@ function update_tomls!(rspec::RepoSpec; kwargs...)
 
         run(`$gitcmd checkout $masterbranch`)
         run(`$gitcmd pull`)
-        # overwrite existing compat branch if it exists
-        # TODO overwrite flag
-        run(`$gitcmd checkout -B $compatbranch`)
+        if overwrite
+            run(`$gitcmd checkout -B $compatbranch`)
+        else
+            run(`$gitcmd checkout -b $compatbranch`)
+        end
 
         result = update_tomls!(pwd(); kwargs...)
 
@@ -233,8 +235,10 @@ function update_tomls!(
 
     result = CompatResult()
 
+    @info "HERE"
     oldctx = Context(env = EnvCache(projectfile_path(pkgdir)))
     Pkg.resolve(oldctx)
+    @info "RESOLVE1"
 
     newctx = Context(env = EnvCache(projectfile_path(pkgdir)))
     for (pkgname, entry) in newctx.env.project.compat
@@ -244,7 +248,10 @@ function update_tomls!(
         # e.g "0.2, 0.3, 0.5" --> ">= 0.2.0"
         newctx.env.project.compat[pkgname] = ">= $(lowerbound(semver_spec(entry)))"
     end
+    @info "UP"
     Pkg.API.up(newctx, level=UPLEVEL_MAJOR, mode=PKGMODE_PROJECT, update_registry=true)
+    @info "DONEUP"
+
 
     for k in keys(oldctx.env.project.other)
         if k != "compat" && oldctx.env.project.other[k] != newctx.env.project.other[k]
@@ -296,8 +303,10 @@ function update_tomls!(
     end
 
     # Sanity check: resolve with updated compat entries
+    @info "RESOLVE2"
     newctx = Context(env = EnvCache(projectfile_path(pkgdir)))
     Pkg.resolve(newctx)
+    @info "DONE"
     # Sanity check: make sure we didn't downgrade any packages below their old compat entry
     for (pkgname, oldentry) in oldctx.env.project.compat
         pkgname == "julia" && continue
