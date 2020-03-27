@@ -299,6 +299,8 @@ function update_tomls!(
         end
     end
 
+    Pkg.Types.write_env(newctx.env)
+
     # Sanity check: resolve with updated compat entries
     newctx = Context(env = EnvCache(projectfile_path(pkgdir)))
     Pkg.resolve(newctx)
@@ -312,8 +314,6 @@ function update_tomls!(
     end
 
     result.manifest_updated = update_manifest && oldctx.env.manifest != newmanifest
-
-    Pkg.Types.write_env(newctx.env)
 
     return result
 end
