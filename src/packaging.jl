@@ -54,20 +54,18 @@ function ly_register(
     end
 end
 
-function incversion!(pkg::Union{Module,AbstractString}, which::Symbol; prerelease = :keep)
+
+function incversion!(pkg::Union{Module,AbstractString}, which::Symbol; prerelease::Symbol = :keep)
     pkg = pkg isa Module ? pkgdir(pkg) : pkg
     isdirty(pkg) && error("$pkg is dirty")
 
-    project = parsetomls(pkg).project.dict
-    newver = incversion(project["version"], which, prerelease = prerelease)
-    project["version"] = newver
-
     projectfile = projectfile_path(pkg)
-    @info "Writing to $projectfile"
+    project = read_project(projectfile)
+    project.version = incversion(project.version, which, prerelease = prerelease)
     write_project(project, projectfile)
 
     git = create_git_cmd(LY_GITCONFIG)
-    message = "New version: v$(newver)"
+    message = "New version: v$(project.version)"
     run(`$git add Project.toml`)
     run(`$git commit -qm $message`)
 

@@ -46,25 +46,8 @@ function genkeys(; user = "\$USER", repo = "\$REPO", comment = "lyceumdevs@gmail
     end
 end
 
-
-hasmanifest(pkgdir::String) = manifestfile_path(pkgdir, strict = true) !== nothing
-hasproject(pkgdir::String) = projectfile_path(pkgdir, strict = true) !== nothing
-
-function parsetomls(pkgdir::String)
-    manifestpath = manifestfile_path(pkgdir, strict = true)
-    projectpath = projectfile_path(pkgdir, strict = true)
-    (project = _parsetoml(projectpath), manifest = _parsetoml(manifestpath))
-end
-
-function _parsetoml(tomlpath)
-    if isnothing(tomlpath) || !isfile(tomlpath)
-        return nothing
-    else
-        string = read(tomlpath, String)
-        (path = tomlpath, string = string, dict = Pkg.TOML.parse(string))
-    end
-end
-
+hasmanifest(pkgdir::AbstractString) = manifestfile_path(pkgdir, strict = true) !== nothing
+hasproject(pkgdir::AbstractString) = projectfile_path(pkgdir, strict = true) !== nothing
 
 function with_sandbox_env(
     fn::Function,
@@ -116,15 +99,25 @@ function cpinto(srcdir::AbstractString, dstdir::AbstractString)
     end
 end
 
-function envinfo(dstpath::AbstractString)
-    mktempdir() do dir
-        env = Pkg.Types.Context().env
-        write_project(env.project, joinpath(dir, "Project.toml"))
-        write_manifest(env.manifest, joinpath(dir, "Manifest.toml"))
-        open(joinpath(dir, "versioninfo.txt"), "w") do io
-            versioninfo(io)
+function flattendir(
+    dir::AbstractString = pwd();
+    sort::Bool = true,
+    dirs::Bool = true,
+    files::Bool = true,
+)
+    paths = String[]
+    for (root, _dirs, _files) in walkdir(dir)
+        if dirs
+            for dir in _dirs
+                push!(paths, joinpath(root, dir))
+            end
         end
-        Pkg.PlatformEngines.probe_platform_engines!()
-        Pkg.PlatformEngines.package(dir, dstpath)
+        if files
+            for file in _files
+                push!(paths, joinpath(root, file))
+            end
+        end
     end
+    sort && sort!(paths)
+    return paths
 end

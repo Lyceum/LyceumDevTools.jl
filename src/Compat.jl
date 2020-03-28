@@ -101,14 +101,14 @@ function update_tomls!(rspec::RepoSpec; overwrite::Bool = true, kwargs...)
         )
 
         if shouldpush
-            project_file = projectfile_path(pwd())
-            @debug "Project file: $project_file"
-            run(`$gitcmd add $project_file`)
+            projectfile = projectfile_path(pwd())
+            @debug "Project file: $projectfile"
+            run(`$gitcmd add $projectfile`)
 
             if result.manifest_updated
-                manifest_file = manifestfile_path(pwd())
-                @debug "Manifest file: $manifest_file"
-                run(`$gitcmd add $manifest_file`)
+                manifestfile = manifestfile_path(pwd())
+                @debug "Manifest file: $manifestfile"
+                run(`$gitcmd add $manifestfile`)
             end
 
             title = "New compat entries"
