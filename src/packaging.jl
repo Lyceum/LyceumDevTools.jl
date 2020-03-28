@@ -1,11 +1,11 @@
-function lygenerate(pkgname::String; kwargs...)
+function ly_generate(pkgname::String; kwargs...)
     preset = deepcopy(LY_PKGTEMPLATE)
     push!(preset.authors, "The Contributors of $pkgname")
     t = Template(; preset..., kwargs...)
     generate(pkgname, t)
 end
 
-function lyregister(
+function ly_register(
     package_repo::AbstractString,
     commit::AbstractString,
     lyceumbot_pat::AbstractString;

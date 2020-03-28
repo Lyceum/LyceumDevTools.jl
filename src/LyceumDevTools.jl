@@ -12,6 +12,7 @@ using Pkg.Types: projectfile_path, manifestfile_path, write_project, write_manif
 using PkgTemplates: Template, generate
 using Registrator: Registrator
 using RegistryTools: register
+using Reexport: @reexport
 
 
 include("configs.jl")
@@ -23,10 +24,13 @@ export ly_format_file, ly_format
 export with_tempdir, genkeys, parsetomls, with_sandbox_env, cpinto, envinfo
 include("misc.jl")
 
-export lygenerate, lyregister, incversion!
+export ly_generate, ly_register, incversion!
 include("packaging.jl")
 
-export Compat
 include("Compat.jl")
+@reexport using .Compat
+
+include("TestUtil.jl")
+@reexport using .TestUtil
 
 end # module

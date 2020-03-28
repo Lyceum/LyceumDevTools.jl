@@ -34,7 +34,7 @@ Base.@kwdef struct RepoSpec
     token::String
     masterbranch::String = DEFAULT_MASTERBRANCH
     compatbranch::String = DEFAULT_COMPATBRANCH
-    gitconfig::Dict{String,String} = Dict{String, String}()
+    gitconfig::Dict{String,String} = Dict{String,String}()
 end
 
 mutable struct CompatResult
@@ -50,7 +50,7 @@ mutable struct CompatResult
             Vector{Tuple{String,String,String}}(),
             Vector{Tuple{String,String}}(),
             nothing,
-            false
+            false,
         )
     end
 end
@@ -96,10 +96,8 @@ function update_tomls!(rspec::RepoSpec; overwrite::Bool = true, kwargs...)
         result = update_tomls!(pwd(); kwargs...)
 
         shouldpush = (
-            !isempty(result.new)
-            || !isempty(result.updated)
-            || result.manifest_updated
-            || result.julia_compat !== nothing
+            !isempty(result.new) ||
+            !isempty(result.updated) || result.manifest_updated || result.julia_compat !== nothing
         )
 
         if shouldpush
@@ -150,7 +148,7 @@ function find_existing_pr(repo::Repo, auth::Authorization, head::String, base::S
         "head" => "$(repo.owner.login):$head",
         "base" => base,
         "per_page" => 50,
-        "page" => 1
+        "page" => 1,
     )
     prs = Vector{PullRequest}()
 
@@ -247,7 +245,7 @@ function update_tomls!(
         # e.g "0.2, 0.3, 0.5" --> ">= 0.2.0"
         newctx.env.project.compat[pkgname] = ">= $(lowerbound(semver_spec(entry)))"
     end
-    Pkg.API.up(newctx, level=UPLEVEL_MAJOR, mode=PKGMODE_PROJECT, update_registry=true)
+    Pkg.API.up(newctx, level = UPLEVEL_MAJOR, mode = PKGMODE_PROJECT, update_registry = true)
 
 
     for k in keys(oldctx.env.project.other)

@@ -1,7 +1,7 @@
 const LY_JULIAFORMATTER = (
     overwrite = true,
     indent = 4,
-    margin = 92,
+    margin = 100,
     always_for_in = false,
     whitespace_typedefs = false,
     whitespace_ops_in_indices = false,
@@ -9,7 +9,7 @@ const LY_JULIAFORMATTER = (
 )
 
 const LY_PKGTEMPLATE = (
-    user = "lyceumbot",
+    user = "Lyceum",
     host = "github.com",
     license = "MIT",
     authors = ["Colin Summers"],

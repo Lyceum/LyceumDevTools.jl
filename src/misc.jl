@@ -15,8 +15,7 @@ function genkeys(; user = "\$USER", repo = "\$REPO", comment = "lyceumdevs@gmail
     directory = pwd()
     filename = tempname()
 
-    isfile(filename) &&
-    error("temporary file '$(filename)' already exists in working directory")
+    isfile(filename) && error("temporary file '$(filename)' already exists in working directory")
     isfile("$(filename).pub") &&
     error("temporary file '$(filename).pub' already exists in working directory")
 
