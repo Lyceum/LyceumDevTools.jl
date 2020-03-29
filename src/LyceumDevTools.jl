@@ -35,7 +35,7 @@ include("packaging.jl")
 include("Compat.jl")
 @reexport using .Compat
 
-include("TestUtil.jl")
+include("TestUtil/TestUtil.jl")
 @reexport using .TestUtil
 
 end # module

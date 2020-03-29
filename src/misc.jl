@@ -101,6 +101,7 @@ end
 
 function flattendir(
     dir::AbstractString = pwd();
+    join::Bool = false,
     sort::Bool = true,
     dirs::Bool = true,
     files::Bool = true,
@@ -118,6 +119,7 @@ function flattendir(
             end
         end
     end
+    !join && (paths = map(path -> relpath(path, dir), paths))
     sort && sort!(paths)
     return paths
 end
