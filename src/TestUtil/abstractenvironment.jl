@@ -1,3 +1,10 @@
+using LyceumBase
+using Test
+using Random
+using Shapes
+
+export testenv_correctness, testenv_inferred, testenv_allocations
+
 function _trajectory(e::AbstractEnvironment, T::Integer)
     (
         states = Array(undef, statespace(e), T),

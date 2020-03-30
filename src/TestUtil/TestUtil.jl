@@ -1,38 +1,27 @@
 module TestUtil
 
+using ..LyceumDevTools: flattendir
+
 using BenchmarkTools: BenchmarkTools, memory
+using Distributed: Distributed
 using MacroTools: MacroTools
-using Test: Test
+using Requires: @require
+
+using Test: Test, AbstractTestSet, DefaultTestSet
+using Test: Result, Pass, Fail, Error, Broken
+
 
 export @qe
 export @test_inferred, @test_noalloc
+export @includetests
+include("macros.jl")
+
+export ProgressTestSet
+include("progresstestset.jl")
 
 
-"""
-    @qe [expression]
-
-Equivalent to:
-
-    quote
-        \$(MacroTools.striplines(esc(expression)))
-    end
-end
-"""
-macro qe(ex)
-    Expr(:quote, MacroTools.striplines(esc(ex)))
-end
-
-macro test_inferred(ex)
-    @qe begin
-        $Test.@test (($Test.@inferred $ex); true)
-    end
-end
-
-macro test_noalloc(ex)
-    @qe begin
-        local nbytes = $memory($BenchmarkTools.@benchmark $ex samples = 1 evals = 1)
-        $iszero(nbytes) ? true : $error("Allocated $(BenchmarkTools.prettymemory(nbytes))")
-    end
+function __init__()
+    @require LyceumBase = "db31fed1-ca1e-4084-8a49-12fae1996a55" include("abstractenvironment.jl")
 end
 
 end # module
