@@ -22,7 +22,11 @@ const COMPAT_UUID = "0062fa4e-0639-437d-8ed2-9da17d9c0af2"
 # For TagBot
 const PR_LABELS = ["compat", "nochangelog"]
 
-const BASE_PACKAGES = Set{Base.UUID}(x for x in keys(Pkg.Types.stdlibs()))
+@static if VERSION < v"1.4"
+    const BASE_PACKAGES = Set{Base.UUID}(x for x in keys(Pkg.Types.stdlib()))
+else
+    const BASE_PACKAGES = Set{Base.UUID}(x for x in keys(Pkg.Types.stdlibs()))
+end
 
 const DEFAULT_MASTERBRANCH = "master"
 const DEFAULT_COMPATBRANCH = "compat"
