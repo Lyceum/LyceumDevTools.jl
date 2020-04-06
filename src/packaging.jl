@@ -80,7 +80,8 @@ function incversion(version::Union{String,VersionNumber}, which::Symbol; prerele
     pre = v.prerelease
     build = v.build
 
-    build != () && @warn "Build not empty: $build"
+    build != () && @warn "build not empty: $build. Ignoring."
+    pre != () && @warn "prerelease not empty: $pre. Ignoring."
 
     if which === :major
         major += 1
@@ -95,17 +96,7 @@ function incversion(version::Union{String,VersionNumber}, which::Symbol; prerele
         error("which must be :major, :minor, or :patch. Got $which")
     end
 
-    if prerelease === :keep
-        nothing
-    elseif prerelease === :dev
-        pre = ("DEV",)
-    elseif isnothing(prerelease)
-        pre = ()
-    else
-        error("prerelease must be one of :keep, :dev, or nothing")
-    end
-
-    vnew = VersionNumber(major, minor, patch, pre, build)
+    vnew = VersionNumber(major, minor, patch)
     @info "Old version: $v. New version: $vnew"
 
     return vnew
