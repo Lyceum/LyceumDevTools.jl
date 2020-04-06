@@ -64,12 +64,12 @@ function incversion!(pkg::Union{Module,AbstractString}, which::Symbol; prereleas
     project.version = incversion(project.version, which, prerelease = prerelease)
     write_project(project, projectfile)
 
-    git = create_git_cmd(LY_GITCONFIG)
+    git = create_git_cmd(LY_GITCONFIG, path = pkg)
     message = "New version: v$(project.version)"
     run(`$git add Project.toml`)
     run(`$git commit -qm $message`)
 
-    return pkg
+    return nothing
 end
 
 function incversion(version::Union{String,VersionNumber}, which::Symbol; prerelease = :keep)
