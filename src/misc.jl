@@ -4,7 +4,6 @@ end
 ly_format(paths...; kwargs...) = format(paths...; LY_JULIAFORMATTER..., kwargs...)
 ly_format(pkgs::Module...; kwargs...) = ly_format(map(pkgdir, pkgs)...; kwargs...)
 
-with_tempdir(f) = mktempdir(dir -> cd(f, dir))
 
 # copied from Documenter.jl
 function genkeys(; user = "\$USER", repo = "\$REPO", comment = "lyceumdevs@gmail.com")
