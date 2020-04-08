@@ -13,6 +13,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     env:
       JULIA_NUM_THREADS: 2
+      MUJOCO_KEY: ${{ secrets.MUJOCO_KEY }}
     strategy:
       fail-fast: false
       matrix:
