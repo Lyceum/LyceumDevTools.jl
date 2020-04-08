@@ -26,24 +26,32 @@ macro test_noalloc(ex)
 end
 
 
-macro includetests(testset, testname)
+macro includetests(testname)
+    if __source__.file !== nothing
+        _dirname = dirname(String(__source__.file::Symbol))
+        root = isempty(_dirname) ? pwd() : abspath(_dirname)
+    else
+        root = pwd()
+    end
     ex = quote
         if $isempty(ARGS)
-            local testfiles = $filter(f -> $match(r"^test_.*\.jl$", $basename(f)) !== nothing, $flattendir($pwd(), dirs=false, join=false))
+            local testfiles = $filter(f -> $match(r"^test_.*\.jl$", $basename(f)) !== nothing, $flattendir($root, dirs=false, join=false))
         else
-            local testfiles = map(f -> endswith(f, ".jl") ? f : "$f.jl", ARGS)
+            local testfiles = $map(f -> $endswith(f, ".jl") ? f : "$f.jl", ARGS)
         end
-        @includetests $testset $testname testfiles
+        @includetests $testname testfiles
     end
     esc(ex)
 end
 
-macro includetests(testset, testname, testfiles)
+macro includetests(testname, testfiles)
     ex = quote
         local testname = $testname
-        $Test.@testset $testset "$testname" begin
+        $Test.@testset "$testname" begin
             for file in $testfiles
-                $Test.@testset "$file" begin $Base.include($__module__, file) end
+                $Test.@testset "$file" begin
+                    $Base.include($__module__, file)
+                end
             end
         end
     end

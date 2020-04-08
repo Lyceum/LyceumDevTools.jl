@@ -6,9 +6,8 @@ function ly_generate(pkgname::String; kwargs...)
 end
 
 function ly_register(
-    package_repo::AbstractString,
+    repo_name::AbstractString,
     commit::AbstractString,
-    lyceumbot_pat::AbstractString;
     push::Bool = true,
     branch::AbstractString = "master",
     kwargs...,
@@ -19,25 +18,25 @@ function ly_register(
         throw(ArgumentError("\"$commit\" is not a valid SHA-1"))
     end
 
-    package_repo = githttpsurl(package_repo) # always register https url
+    url = "https://github.com/Lyceum/$(repo_name).git"
 
     with_tempdir() do
         git = create_git_cmd(LY_GITCONFIG)
 
-        run(`$git clone $package_repo $(pwd())`)
+        run(`$git clone $url $(pwd())`)
         run(`$git checkout master`)
         if !success(`$git merge-base --is-ancestor $commit HEAD`)
             error("$commit not found in master branch")
         end
         run(`$git checkout $commit`)
 
-        pkg = Pkg.Types.read_project(projectfile_path(pwd()))
-        registry_deps = map(reg -> reg.url, Pkg.Types.collect_registries())
+        pkg = read_project(projectfile_path(pwd()))
 
+        registry_deps = map(reg -> reg.url, Pkg.Types.collect_registries())
         LY_REGISTRY.url in registry_deps || error("Please add LyceumRegistry: $LY_REGISTRY")
 
         rbrn = register(
-            package_repo,
+            url,
             pkg,
             string(treehash(pwd()));
             registry = LY_REGISTRY.url,
@@ -55,7 +54,7 @@ function ly_register(
 end
 
 
-function incversion!(pkg::Union{Module,AbstractString}, which::Symbol; prerelease::Symbol = :keep)
+function incversion!(pkg::Union{Module,AbstractString}, which::Symbol; prerelease = (), build = ())
     pkg = pkg isa Module ? pkgdir(pkg) : pkg
     isdirty(pkg) && error("$pkg is dirty")
 
@@ -72,16 +71,11 @@ function incversion!(pkg::Union{Module,AbstractString}, which::Symbol; prereleas
     return nothing
 end
 
-function incversion(version::Union{String,VersionNumber}, which::Symbol; prerelease = :keep)
+function incversion(version::Union{String,VersionNumber}, which::Symbol; prerelease= (), build = ())
     v = version isa String ? VersionNumber(version) : version
     major = v.major
     minor = v.minor
     patch = v.patch
-    pre = v.prerelease
-    build = v.build
-
-    build != () && @warn "build not empty: $build. Ignoring."
-    pre != () && @warn "prerelease not empty: $pre. Ignoring."
 
     if which === :major
         major += 1
@@ -96,7 +90,14 @@ function incversion(version::Union{String,VersionNumber}, which::Symbol; prerele
         error("which must be :major, :minor, or :patch. Got $which")
     end
 
-    vnew = VersionNumber(major, minor, patch)
+    v.prerelease != () && @warn "prerelease not empty: $pre. Ignoring."
+    prerelease = prerelease === :dev ? "DEV" : prerelease
+    prerelease = prerelease isa Tuple ? prerelease : (prerelease, )
+
+    v.build != () && @warn "build not empty: $build. Ignoring."
+    build = build isa Tuple ? build : (build, )
+
+    vnew = VersionNumber(major, minor, patch, prerelease, build)
     @info "Old version: $v. New version: $vnew"
 
     return vnew
