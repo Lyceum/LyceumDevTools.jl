@@ -20,7 +20,7 @@ function ly_register(
 
     url = "https://github.com/Lyceum/$(repo_name).git"
 
-    with_tempdir() do
+    with_tempdir() do _
         git = create_git_cmd(LY_GITCONFIG)
 
         run(`$git clone $url $(pwd())`)
