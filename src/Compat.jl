@@ -81,7 +81,7 @@ function update_tomls!(rspec::RepoSpec; overwrite::Bool = true, kwargs...)
     gitcmd = create_git_cmd(rspec.gitconfig)
     @debug "Git command: $gitcmd"
 
-    with_tempdir() do
+    with_tempdir() do _
         auth = authenticate(rspec.token)
         ghrepo = repo(rspec.reponame, auth = auth)
 
@@ -112,7 +112,13 @@ function update_tomls!(rspec::RepoSpec; overwrite::Bool = true, kwargs...)
             if result.manifest_updated
                 manifestfile = manifestfile_path(pwd())
                 @debug "Manifest file: $manifestfile"
-                run(`$gitcmd add $manifestfile`)
+                if success(`$gitcmd check-ignore $manifestfile`)
+                    # Manifest.toml is in .gitignore
+                    rpath = relpath(manifestfile, pwd())
+                    @warn "update_manifest was set to true but $rpath is ignored by git. Skipping."
+                else
+                    run(`$gitcmd add $manifestfile`)
+                end
             end
 
             title = "New compat entries"
