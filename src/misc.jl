@@ -123,3 +123,9 @@ function flattendir(
     sort && sort!(paths)
     return paths
 end
+
+# check if child is a subpath of parent e.g.
+# issubpath("/tmp/foo", "/tmp/foo/bar/baz.txt") == true
+function issubpath(parent::AbstractString, child::AbstractString)
+    startswith(realpath(child), realpath(parent))
+end

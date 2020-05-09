@@ -18,7 +18,6 @@ using Pkg.Types: manifestfile_path, read_manifest, write_manifest
 using PkgTemplates: Template, generate
 using Registrator: Registrator
 using RegistryTools: register
-using Reexport: @reexport
 
 
 include("configs.jl")
@@ -33,10 +32,10 @@ include("misc.jl")
 export ly_generate, ly_register, incversion!
 include("packaging.jl")
 
-include("Compat.jl")
-@reexport using .Compat
+include("Compat/Compat.jl")
+using .Compat
 
 include("TestUtil/TestUtil.jl")
-@reexport using .TestUtil
+using .TestUtil
 
 end # module
