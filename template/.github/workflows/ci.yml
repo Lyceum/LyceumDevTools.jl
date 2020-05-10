@@ -4,7 +4,7 @@ on:
   push:
   pull_request:
   schedule:
-    - cron: '0 0 * * *'
+    - cron: "0 0 * * *"
   repository_dispatch:
 
 jobs:
@@ -18,7 +18,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macOS-latest, windows-latest]
-        julia-version: ['1.4']
+        julia-version: ["1.4"]
     steps:
       - uses: actions/checkout@v2
       - uses: julia-actions/setup-julia@v1
@@ -54,7 +54,7 @@ jobs:
       #    sudo apt install xorg-dev xvfb
       #    sudo Xvfb :99 -screen 0 1024x768x24 &
       - name: Run tests
-        run:  julia --color=yes -e 'using Run; Run.test()'
+        run: julia --color=yes -e 'using Run; Run.test()'
         shell: bash
         #env:
         #  MUJOCO_KEY: ${{ secrets.MUJOCO_KEY }}

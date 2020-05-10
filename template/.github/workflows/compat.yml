@@ -2,14 +2,13 @@ name: UpdateCompat
 
 on:
   schedule:
-    - cron: '0 0 * * *'
+    - cron: "0 0 * * *"
   repository_dispatch:
 
 jobs:
   Compat:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
       - name: Add registries
         run: |
           julia --color=yes -e 'using Pkg; pkg"registry add https://github.com/JuliaRegistries/General.git"'
@@ -17,7 +16,7 @@ jobs:
       - name: Install LyceumDevTools.jl
         run: julia --color=yes -e 'using Pkg; pkg"add LyceumDevTools"'
       - name: Update compat
-        run: julia --color=yes -e 'using LyceumDevTools.Compat; Compat.ghactions(sub_dir="test")'
+        run: julia --color=yes -e 'using LyceumDevTools.Compat; ghactions(sub_dir="test")'
         env:
           COMPAT_USERNAME: lyceumbot
           COMPAT_TOKEN: ${{ secrets.LYCEUMBOT_PAT }}
