@@ -17,7 +17,7 @@ using Pkg.Types: projectfile_path, manifestfile_path, write_env, write_project, 
 using UnPack
 
 
-export RepoSpec, update_tomls!
+export RepoSpec, update_tomls!, update_tomls_from_sub_dir!, ghactions
 
 
 # "magic bytes" embedded in pull requests to identify if a preexisiting PR
@@ -37,6 +37,7 @@ const UPDATE_MANIFEST = true
 const KEEP_OLD_COMPAT = true
 const DROP_PATCH = true
 const UPDATE_JULIA_COMPAT = false
+const SHARE_TRACKED_DEPS = false
 
 
 include("types.jl")
@@ -56,7 +57,7 @@ function update_tomls!(
     Pkg.API.up(ctx, level = UPLEVEL_MAJOR, mode = PKGMODE_PROJECT, update_registry = true)
     _unlowerbound!(ctx)
 
-    result = _update_tomls!(ctx, ctx, keep_old_compat, drop_patch, update_julia_compat)
+    result = _update_tomls!(ctx, ctx, keep_old_compat, drop_patch, update_julia_compat, false)
 
     msg = format_message(nothing => result)
     println()
@@ -71,6 +72,7 @@ function update_tomls_from_sub_dir!(
     keep_old_compat::Bool = KEEP_OLD_COMPAT,
     drop_patch::Bool = DROP_PATCH,
     update_julia_compat::Bool = UPDATE_JULIA_COMPAT,
+    share_tracked_deps::Bool = SHARE_TRACKED_DEPS,
 )
     sub_dir = normpath(joinpath(pkg_dir, sub_dir))
     isdir(sub_dir) || error("$sub_dir does not exist.")
@@ -96,8 +98,8 @@ function update_tomls_from_sub_dir!(
     _unlowerbound!(pkg_ctx)
     _unlowerbound!(sub_ctx)
 
-    pkg_result = _update_tomls!(pkg_ctx, sub_ctx, keep_old_compat, drop_patch, update_julia_compat)
-    sub_result = _update_tomls!(sub_ctx, sub_ctx, keep_old_compat, drop_patch, update_julia_compat)
+    pkg_result = _update_tomls!(pkg_ctx, sub_ctx, keep_old_compat, drop_patch, update_julia_compat, share_tracked_deps)
+    sub_result = _update_tomls!(sub_ctx, sub_ctx, keep_old_compat, drop_patch, update_julia_compat, false)
 
     msg = format_message("/" => pkg_result, "/" * relpath(sub_dir, pkg_dir) => sub_result)
     println()
@@ -133,6 +135,7 @@ function _update_tomls!(
     keep_old_compat::Bool,
     drop_patch::Bool,
     update_julia_compat::Bool,
+    share_tracked_deps::Bool,
 )
     deps = dest.env.project.deps
     old_compat = dest.env.original_project.compat
@@ -142,7 +145,13 @@ function _update_tomls!(
 
     for (name, uuid) in deps
         (isstdlib(uuid) || isjll(name)) && continue
+
+        new_pkg_entry = new_manifest[uuid]
         new_version = new_manifest[uuid].version
+        if share_tracked_deps
+            dest.env.manifest[uuid] = new_pkg_entry
+        end
+
         if haskey(old_compat, name)
             old_entry = old_compat[name]
             if keep_old_compat
