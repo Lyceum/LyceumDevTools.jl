@@ -163,23 +163,21 @@ function _update_tomls!(
             else
                 new_entry = format_compat(new_version, drop_patch)
             end
-            if semver_spec(old_entry) == semver_spec(new_entry)
-                # Same semver spec, but keep old entry formatting
-                # TODO change this to provide a canoncial/compressed compat entry
-                new_entry = old_entry
+
+            old_spec = semver_spec(old_entry)
+            new_spec = semver_spec(new_entry)
+            if lowerbound(old_spec) > lowerbound(new_spec) || old_spec == new_spec
+                # Don't update the compat entry if it would result in a downgrade
+                # and if the specs are equal, keep the old one (however it was formatted)
                 push!(result.unchanged, (name, old_entry))
             else
                 push!(result.updated, (name, old_entry, new_entry))
             end
-            # sanity check: make sure we don't downgrade any packages below their old compat entry
-            old_lb = lowerbound(semver_spec(old_entry))
-            new_lb = lowerbound(semver_spec(new_entry))
-            @assert old_lb <= new_lb
         else
             new_entry = format_compat(new_version, drop_patch)
+            new_compat[name] = new_entry
             push!(result.new, (name, new_entry))
         end
-        new_compat[name] = new_entry
     end
 
     if !haskey(old_compat, "julia")

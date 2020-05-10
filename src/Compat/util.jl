@@ -21,7 +21,7 @@ end
 function format_compat(compat::AbstractString, drop_patch::Bool)
     compat = String(compat)
     try
-        return format_compat(VersionNumber(compat))
+        return format_compat(VersionNumber(compat), drop_patch)
     catch
         try
             spec = VersionSpec(semver_spec(compat)) # check to make sure valid
