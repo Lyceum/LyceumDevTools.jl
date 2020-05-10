@@ -58,6 +58,7 @@ function update_tomls!(
     _unlowerbound!(ctx)
 
     result = _update_tomls!(ctx, ctx, keep_old_compat, drop_patch, update_julia_compat, false)
+    write_env(ctx.env)
 
     msg = format_message(nothing => result)
     println()
@@ -100,6 +101,9 @@ function update_tomls_from_sub_dir!(
 
     pkg_result = _update_tomls!(pkg_ctx, sub_ctx, keep_old_compat, drop_patch, update_julia_compat, share_tracked_deps)
     sub_result = _update_tomls!(sub_ctx, sub_ctx, keep_old_compat, drop_patch, update_julia_compat, false)
+
+    write_project(pkg_ctx.env.project, pkg_ctx.env.project_file)
+    write_project(sub_ctx.env.project, sub_ctx.env.project_file)
 
     msg = format_message("/" => pkg_result, "/" * relpath(sub_dir, pkg_dir) => sub_result)
     println()
@@ -188,13 +192,8 @@ function _update_tomls!(
         end
     end
 
-    # sanity check: make sure project can still be resolved (Pkg.resolve errors if not)
-    Pkg.resolve(dest)
-    Pkg.API.up(dest, level = UPLEVEL_MAJOR, mode = PKGMODE_PROJECT, update_registry = true)
-    write_env(dest.env)
-
     result.project_file = dest.env.project_file
-    if dest.env.manifest != dest.env.original_manifest
+    if !isempty(dest.env.manifest) && dest.env.manifest != dest.env.original_manifest
         result.manifest_file = dest.env.manifest_file
     end
 
