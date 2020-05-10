@@ -233,8 +233,10 @@ function update_tomls!(rspec::RepoSpec; sub_dir = nothing, commit_manifest::Bool
         end
 
         for r in rs
-            r.project_file !== nothing && safe_git_add(gitcmd, r.project_file)
-            commit_manifest && r.manifest_file !== nothing && safe_git_add(gitcmd, r.manifest_file)
+            r.project_file !== nothing && safe_git_add(gitcmd, relpath(r.project_file, pwd()))
+            if commit_manifest && r.manifest_file !== nothing
+                safe_git_add(gitcmd, relpath(r.manifest_file, pwd()))
+            end
         end
 
         if success(`$gitcmd diff-index --quiet --cached HEAD --`)

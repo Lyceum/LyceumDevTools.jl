@@ -1,5 +1,5 @@
 Base.@kwdef struct RepoSpec
-    reponame::String
+    reponame::String # e.g "Lyceum/LyceumBase.jl"
     username::String
     token::String
     masterbranch::String = MASTER_BRANCH
