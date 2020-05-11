@@ -7,6 +7,7 @@ Base.@kwdef struct RepoSpec
     gitconfig::Dict{String,String} = Dict{String,String}()
 end
 
+
 MaybeStr = Union{String,Nothing}
 Base.@kwdef mutable struct CompatResult
     project_file::String
@@ -25,3 +26,49 @@ function project_updated(r::CompatResult)
 end
 manifest_updated(r::CompatResult) = r.manifest_updated
 updated(r::CompatResult) = project_updated(r) || manifest_updated(r)
+
+function format_message(pkg_dir::AbstractString, rs::AbstractVector{CompatResult})
+    msg = []
+    for (i, r) in enumerate(rs)
+        header = "Summary ($(relpath(r.project_file, pkg_dir)))"
+        push!(msg, Header(header, 3))
+
+        misc = List()
+        r.manifest_updated && push!(misc.items, Paragraph("Updated Manifest"))
+        if r.julia_compat !== nothing
+            push!(misc.items, Paragraph("Updated compat entry for Julia: v$(r.julia_compat)"))
+        end
+        push!(misc.items, Paragraph("$(length(r.new)) new compat entries"))
+        push!(misc.items, Paragraph("$(length(r.updated)) updated compat entries"))
+        push!(misc.items, Paragraph("$(length(r.unchanged)) unchanged compat entries"))
+        push!(msg, misc)
+
+        if !isempty(r.new)
+            push!(msg, Header("New Compat Entries", 4))
+            titles = map(Bold, ["Package", "New Compat"])
+            table = Markdown.Table([titles], [:l, :c])
+            for (name, new) in r.new
+                push!(table.rows, [name, new])
+            end
+            push!(msg, table)
+        end
+
+        if !isempty(r.updated)
+            push!(msg, Header("Updated Compat Entries", 4))
+            titles = map(Bold, ["Package", "Old Compat", "New Compat"])
+            table = Markdown.Table([titles], [:l, :c, :c])
+            for (name, old, new) in r.updated
+                push!(table.rows, [name, old, new])
+            end
+            push!(msg, table)
+        end
+        i != length(rs) && push!(msg, Paragraph()) # line break
+    end
+
+    # magic bytes for identifying if an existing PR came from LyceumDevTools.Compat
+    push!(msg, HorizontalRule())
+    push!(msg, Paragraph("Last updated: $(now(UTC)) UTC"))
+    push!(msg, Paragraph("Magic Bytes: $COMPAT_UUID"))
+
+    Markdown.MD(msg...)
+end
