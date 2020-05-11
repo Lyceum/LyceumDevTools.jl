@@ -57,6 +57,7 @@ function update_tomls!(
 )
     @info "Resolving project"
     ctx = Context(env = EnvCache(realpath(projectfile_path(env_dir))))
+    Pkg.instantiate(ctx)
     Pkg.resolve(ctx)
 
     # only update the registry once
@@ -87,6 +88,7 @@ function update_tomls_from_test!(
 
     @info "Resolving test project"
     test_ctx = Context(env = EnvCache(realpath(projectfile_path(joinpath(pkg_dir, "test")))))
+    Pkg.instantiate(test_ctx)
     Pkg.resolve(test_ctx)
 
     # only update the registry once
