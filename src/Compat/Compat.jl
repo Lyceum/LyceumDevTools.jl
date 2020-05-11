@@ -10,10 +10,13 @@ using Dates
 using Markdown: Markdown, Paragraph, Bold, Table, List, Header, HorizontalRule
 
 using Pkg
-using Pkg.Types: VersionSpec, VersionBound, semver_spec
-using Pkg.Types: Context, EnvCache, Project, Manifest
-using Pkg.Types: projectfile_path, manifestfile_path, write_env, write_project, write_manifest
+using Pkg: Types, Operations
+using Pkg.Types: Types, PackageEntry, PackageSpec, VersionSpec, VersionBound, semver_spec
+using Pkg.Types: Context, EnvCache, read_package, write_env
+using Pkg.Types: Project, projectfile_path, read_project, write_project
+using Pkg.Types: Manifest, manifestfile_path, read_manifest, write_manifest
 
+using UUIDs
 using UnPack
 
 
@@ -26,23 +29,23 @@ const COMPAT_UUID = "0062fa4e-0639-437d-8ed2-9da17d9c0af2"
 const PR_LABELS = ["compat", "nochangelog"]
 
 @static if VERSION < v"1.4"
-    const BASE_PACKAGES = Set{Base.UUID}(x for x in keys(Pkg.Types.stdlib()))
+    const BASE_PACKAGES = Set{Base.UUID}(x for x in keys(Types.stdlib()))
 else
-    const BASE_PACKAGES = Set{Base.UUID}(x for x in keys(Pkg.Types.stdlibs()))
+    const BASE_PACKAGES = Set{Base.UUID}(x for x in keys(Types.stdlibs()))
 end
 
 const MASTER_BRANCH = "master"
 const COMPAT_BRANCH = "compat"
-const UPDATE_MANIFEST = true
 const KEEP_OLD_COMPAT = true
 const DROP_PATCH = true
 const UPDATE_JULIA_COMPAT = false
-const SHARE_TRACKED_DEPS = false
+const UPDATE_MANIFEST = true
 
 
 include("types.jl")
 include("ci.jl")
 include("util.jl")
+include("update.jl")
 
 
 function update_tomls!(
@@ -50,133 +53,127 @@ function update_tomls!(
     keep_old_compat::Bool = KEEP_OLD_COMPAT,
     drop_patch::Bool = DROP_PATCH,
     update_julia_compat::Bool = UPDATE_JULIA_COMPAT,
+    update_manifest::Bool = UPDATE_MANIFEST,
 )
-    ctx = Context(env = EnvCache(projectfile_path(env_dir)))
-    _lowerbound!(ctx)
-    Pkg.resolve()
-    Pkg.API.up(ctx, level = UPLEVEL_MAJOR, mode = PKGMODE_PROJECT, update_registry = true)
-    _unlowerbound!(ctx)
+    @info "Resolving project"
+    ctx = Context(env = EnvCache(realpath(projectfile_path(env_dir))))
+    Pkg.resolve(ctx)
 
-    result = _update_tomls!(ctx, ctx, keep_old_compat, drop_patch, update_julia_compat, false)
-    write_env(ctx.env)
+    # only update the registry once
+    @info "Updating registries"
+    Pkg.Registry.update()
+    pkgs = get_updated_versions(ctx)
 
-    msg = format_message(nothing => result)
+    result = CompatResult(project_file = ctx.env.project_file)
+    _update_compat!(ctx, result, pkgs, keep_old_compat, drop_patch, update_julia_compat)
+    update_manifest && _update_manifest!(ctx, result)
+
+    results = [result]
+    msg = format_message(env_dir, results)
     println()
     display(msg)
-
-    return (result, ), msg
 end
 
-function update_tomls_from_sub_dir!(
-    pkg_dir::AbstractString,
-    sub_dir::AbstractString;
+function update_tomls_from_test!(
+    pkg_dir::AbstractString;
     keep_old_compat::Bool = KEEP_OLD_COMPAT,
     drop_patch::Bool = DROP_PATCH,
     update_julia_compat::Bool = UPDATE_JULIA_COMPAT,
-    share_tracked_deps::Bool = SHARE_TRACKED_DEPS,
+    update_manifest::Bool = UPDATE_MANIFEST,
+    remove_redundant::Bool = true,
 )
-    sub_dir = normpath(joinpath(pkg_dir, sub_dir))
-    isdir(sub_dir) || error("$sub_dir does not exist.")
-    issubpath(pkg_dir, sub_dir) || error("$sub_dir is not a subdirectory of $pkg_dir")
+    pkg_ctx = Context(env = EnvCache(realpath(projectfile_path(pkg_dir))))
+    @assert Pkg.project(pkg_ctx).ispackage
 
-    pkg_ctx = Context(env = EnvCache(projectfile_path(pkg_dir)))
-    sub_ctx = Context(env = EnvCache(projectfile_path(sub_dir)))
-    isfile(sub_ctx.env.project_file) || error("No Project.toml found in $sub_dir")
+    @info "Resolving test project"
+    test_ctx = Context(env = EnvCache(realpath(projectfile_path(joinpath(pkg_dir, "test")))))
+    Pkg.resolve(test_ctx)
 
-    # Check that the package is dev'ed relative to sub_dir
-    Pkg.instantiate(sub_ctx)
-    pkg_name = pkg_ctx.env.project.name
-    pkg_entry = get(sub_ctx.env.manifest, pkg_ctx.env.project.uuid, nothing)
-    pkg_entry === nothing && error("$pkg_name not found in $(sub_ctx.env.manifest_file)")
-    expected = relpath(pkg_dir, sub_dir)
-    pkg_entry.path == expected || error("Expected $pkg_name to be dev'ed at $expected.")
+    # only update the registry once
+    @info "Updating registries"
+    Pkg.Registry.update()
+    pkgs = get_updated_versions_from_test(pkg_ctx, test_ctx)
 
-    # relax compat for both the project and sub-project and get the updated manifest
-    _lowerbound!(pkg_ctx)
-    _lowerbound!(sub_ctx)
-    Pkg.resolve(sub_ctx)
-    Pkg.API.up(sub_ctx, level = UPLEVEL_MAJOR, mode = PKGMODE_PROJECT, update_registry = true)
-    _unlowerbound!(pkg_ctx)
-    _unlowerbound!(sub_ctx)
 
-    pkg_result = _update_tomls!(pkg_ctx, sub_ctx, keep_old_compat, drop_patch, update_julia_compat, share_tracked_deps)
-    sub_result = _update_tomls!(sub_ctx, sub_ctx, keep_old_compat, drop_patch, update_julia_compat, false)
+    pkg_result = CompatResult(project_file = pkg_ctx.env.project_file)
+    _update_compat!(pkg_ctx, pkg_result, pkgs, keep_old_compat, drop_patch, update_julia_compat)
 
-    write_project(pkg_ctx.env.project, pkg_ctx.env.project_file)
-    write_project(sub_ctx.env.project, sub_ctx.env.project_file)
+    test_result = CompatResult(project_file = test_ctx.env.project_file)
+    if remove_redundant
+        remove = [Pkg.project(pkg_ctx).uuid, collect(values(pkg_ctx.env.project.deps))...]
+        _update_compat!(test_ctx, test_result, pkgs, keep_old_compat, drop_patch, update_julia_compat, remove = remove)
+    else
+        _update_compat!(test_ctx, test_result, pkgs, keep_old_compat, drop_patch, update_julia_compat, remove = remove)
+    end
+    update_manifest && _update_manifest!(test_ctx, test_result)
 
-    msg = format_message("/" => pkg_result, "/" * relpath(sub_dir, pkg_dir) => sub_result)
+
+    results = [pkg_result, test_result]
+    msg = format_message(pkg_dir, results)
     println()
     display(msg)
-
-    return (pkg_result, sub_result), msg
+    return results, msg
 end
 
-function _lowerbound!(ctx::Context)
-    for (name, entry) in ctx.env.project.compat
-        name == "julia" && continue
-        # Prevent downgrading any deps below the lower bound of their current compat entry
-        # by replacing each compat entry with an inequality specifier
-        # e.g "0.2, 0.3, 0.5" --> ">= 0.2.0"
-        ctx.env.project.compat[name] = ">= $(lowerbound(semver_spec(entry)))"
+function _update_manifest!(ctx::Context, result::CompatResult)
+    new_manifest = with_sandbox(ctx) do _
+        Pkg.update(update_registry = false)
+        deepcopy(Context().env.manifest)
     end
-    write_env(ctx.env)
-    return ctx
-end
-
-function _unlowerbound!(ctx::Context)
-    for (name, entry) in ctx.env.project.compat
-        name == "julia" && continue
-        ctx.env.project.compat[name] = ctx.env.original_project.compat[name]
+    if new_manifest != ctx.env.original_manifest
+        write_manifest(new_manifest, ctx.env.manifest_file)
+        result.manifest_updated = true
     end
-    write_env(ctx.env)
-    return ctx
+    return result
 end
 
-function _update_tomls!(
-    dest::Context,
-    src::Context,
+function _update_compat!(
+    ctx::Context,
+    result::CompatResult,
+    pkgs::Dict{UUID,PackageEntry},
     keep_old_compat::Bool,
     drop_patch::Bool,
-    update_julia_compat::Bool,
-    share_tracked_deps::Bool,
+    update_julia_compat::Bool;
+    remove::Vector{UUID} = UUID[],
 )
-    deps = dest.env.project.deps
-    old_compat = dest.env.original_project.compat
-    new_compat = dest.env.project.compat
-    new_manifest = src.env.manifest
-    result = CompatResult()
-
+    deps = ctx.env.project.deps
+    old_compat = ctx.env.original_project.compat
+    new_compat = ctx.env.project.compat
     for (name, uuid) in deps
         (isstdlib(uuid) || isjll(name)) && continue
 
-        new_pkg_entry = new_manifest[uuid]
-        new_version = new_manifest[uuid].version
-        if share_tracked_deps
-            dest.env.manifest[uuid] = new_pkg_entry
-        end
+        ver = pkgs[uuid].version
 
         if haskey(old_compat, name)
             old_entry = old_compat[name]
             if keep_old_compat
-                new_entry = format_compat(old_entry, new_version, drop_patch)
+                new_entry = format_compat(old_entry, ver, drop_patch)
             else
-                new_entry = format_compat(new_version, drop_patch)
+                new_entry = format_compat(ver, drop_patch)
             end
 
             old_spec = semver_spec(old_entry)
             new_spec = semver_spec(new_entry)
-            if lowerbound(old_spec) > lowerbound(new_spec) || old_spec == new_spec
+            if uuid in remove
+                delete!(new_compat, name)
+                push!(result.updated, (name, old_entry, nothing))
+            elseif lowerbound(new_spec) < lowerbound(old_spec) || new_spec == old_spec
                 # Don't update the compat entry if it would result in a downgrade
                 # and if the specs are equal, keep the old one (however it was formatted)
+                # TODO format entry to canonical/compressed form.
                 push!(result.unchanged, (name, old_entry))
             else
+                new_compat[name] = new_entry
                 push!(result.updated, (name, old_entry, new_entry))
             end
         else
-            new_entry = format_compat(new_version, drop_patch)
-            new_compat[name] = new_entry
-            push!(result.new, (name, new_entry))
+            if uuid in remove
+                push!(result.unchanged, (name, nothing))
+            else
+                new_entry = format_compat(ver, drop_patch)
+                new_compat[name] = new_entry
+                push!(result.new, (name, new_entry))
+            end
         end
     end
 
@@ -190,17 +187,12 @@ function _update_tomls!(
         end
     end
 
-    result.project_file = dest.env.project_file
-    if !isempty(dest.env.manifest) && dest.env.manifest != dest.env.original_manifest
-        result.manifest_file = dest.env.manifest_file
-    end
-
+    project_updated(result) && write_project(ctx.env.project, ctx.env.project_file)
     return result
 end
 
 
-
-function update_tomls!(rspec::RepoSpec; sub_dir = nothing, commit_manifest::Bool = true, overwrite::Bool = true, kwargs...)
+function update_tomls!(rspec::RepoSpec; update_from_test::Bool = true, overwrite::Bool = true, kwargs...)
     masterbranch = rspec.masterbranch
     compatbranch = rspec.compatbranch
 
@@ -223,17 +215,15 @@ function update_tomls!(rspec::RepoSpec; sub_dir = nothing, commit_manifest::Bool
             run(`$gitcmd checkout -b $compatbranch`)
         end
 
-        if sub_dir === nothing
-            rs, msg = update_tomls!(pwd(); kwargs...)
+        if update_from_test
+            rs, msg = update_tomls_from_test!(pwd(); kwargs...)
         else
-            rs, msg = update_tomls_from_sub_dir!(pwd(), sub_dir; kwargs...)
+            rs, msg = update_tomls!(pwd(), kwargs...)
         end
 
         for r in rs
-            r.project_file !== nothing && safe_git_add(gitcmd, relpath(r.project_file, pwd()))
-            if commit_manifest && r.manifest_file !== nothing
-                safe_git_add(gitcmd, relpath(r.manifest_file, pwd()))
-            end
+            project_updated(r) && safe_git_add(gitcmd, r.project_file)
+            manifest_updated(r) && safe_git_add(gitcmd, manifestfile_path(dirname(r.project_file)))
         end
 
         if success(`$gitcmd diff-index --quiet --cached HEAD --`)
@@ -313,14 +303,14 @@ function find_existing_pr(repo::Repo, auth::Authorization, head::String, base::S
     end
 end
 
-function format_message(rs::Pair{<:Union{AbstractString,Nothing},CompatResult}...)
+function format_message(pkg_dir::AbstractString, rs::AbstractVector{CompatResult})
     msg = []
-    for (i, (name, r)) in enumerate(rs)
-        header = name === nothing ? "Summary" : "Summary ($name)"
+    for (i, r) in enumerate(rs)
+        header = "Summary ($(relpath(r.project_file, pkg_dir)))"
         push!(msg, Header(header, 3))
 
         misc = List()
-        r.manifest_file !== nothing && push!(misc.items, Paragraph("Updated Manifest"))
+        r.manifest_updated && push!(misc.items, Paragraph("Updated Manifest"))
         if r.julia_compat !== nothing
             push!(misc.items, Paragraph("Updated compat entry for Julia: v$(r.julia_compat)"))
         end
@@ -353,7 +343,7 @@ function format_message(rs::Pair{<:Union{AbstractString,Nothing},CompatResult}..
 
     # magic bytes for identifying if an existing PR came from LyceumDevTools.Compat
     push!(msg, HorizontalRule())
-    push!(msg, Paragraph("Last updated: $(now())"))
+    push!(msg, Paragraph("Last updated: $(now(UTC)) UTC"))
     push!(msg, Paragraph("Magic Bytes: $COMPAT_UUID"))
 
     Markdown.MD(msg...)

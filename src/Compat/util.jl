@@ -2,14 +2,13 @@ isstdlib(name::AbstractString) = isstdlib(Base.UUID(name))
 isstdlib(uuid::Base.UUID) = uuid in BASE_PACKAGES
 isjll(name::AbstractString) = endswith(lowercase(strip(name)), lowercase(strip("_jll"))) # TODO check for Artifacts.toml?
 
-function format_compat(v::VersionNumber, drop_patch::Bool)
+
+function format_compat(v::VersionNumber, drop_patch::Bool=false)
+    isempty(v.prerelease) || @warn "Ignoring prerelease suffix"
+    isempty(v.build) || @warn "Ignoring build suffix"
     if v.patch == 0 || drop_patch
         if v.minor == 0
-            if v.major == 0 # v.major is 0, v.minor is 0, v.patch is 0
-                throw(DomainError("0.0.0 is not a valid input"))
-            else # v.major is nonzero and v.minor is 0 and v.patch is 0
-                return "$(v.major)"
-            end
+            return "$(v.major)"
         else # v.minor is nonzero, v.patch is 0
             return "$(v.major).$(v.minor)"
         end
@@ -39,7 +38,20 @@ end
 
 lowerbound(spec::VersionSpec) = minimum(r -> bound2ver(r.lower), spec.ranges)
 
-function bound2ver(bound::VersionBound)
-    bound.n == 0 && error("bound.n must be > 0 to convert to VersionNumber")
-    return VersionNumber(bound[1], bound[2], bound[3])
+format_lowerbound_compat(spec::VersionSpec) = ">= $(format_compat(lowerbound(spec)))"
+
+bound2ver(bound::VersionBound) = VersionNumber(bound[1], bound[2], bound[3])
+
+function with_sandbox(fn::Function, ctx::Context)
+    project = deepcopy(ctx.env.project)
+    manifest = deepcopy(ctx.env.manifest)
+    Operations.abspath!(ctx, manifest)
+    mktempdir() do tmp
+        write_project(project, projectfile_path(tmp))
+        write_manifest(manifest, manifestfile_path(tmp))
+        Operations.with_temp_env(tmp) do
+            Pkg.resolve()
+            return fn(tmp)
+        end
+    end
 end

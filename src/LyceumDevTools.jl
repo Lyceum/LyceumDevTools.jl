@@ -9,7 +9,6 @@ using GitHub: authenticate_headers!, authenticate, github2json, api_uri
 using HTTP: HTTP
 using JuliaFormatter: format_file, format
 using LibGit2: LibGit2
-using LyceumCore
 
 using Pkg
 using Pkg.Types: projectfile_path, read_project, write_project

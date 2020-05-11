@@ -7,22 +7,21 @@ Base.@kwdef struct RepoSpec
     gitconfig::Dict{String,String} = Dict{String,String}()
 end
 
-mutable struct CompatResult
-    new::Vector{Tuple{String,String}} # (name, new_compat)
-    updated::Vector{Tuple{String,String,String}} # (name, old_compat, new_compat)
-    unchanged::Vector{Tuple{String,String}} # (name, old_compat)
-    julia_compat::Union{String,Nothing}
-    project_file::Union{String,Nothing}
-    manifest_file::Union{String,Nothing}
-
-    function CompatResult()
-        new(
-            Vector{Tuple{String,String}}(),
-            Vector{Tuple{String,String,String}}(),
-            Vector{Tuple{String,String}}(),
-            nothing,
-            nothing,
-            nothing,
-        )
-    end
+MaybeStr = Union{String,Nothing}
+Base.@kwdef mutable struct CompatResult
+    project_file::String
+    # (name, new_compat)
+    new::Vector{Tuple{String,String}} = Vector{Tuple{String,String}}()
+    # (name, old_compat, new_compat)
+    updated::Vector{Tuple{String,String,MaybeStr}} = Vector{Tuple{String,String,MaybeStr}}()
+    # (name, old_compat)
+    unchanged::Vector{Tuple{String,MaybeStr}} = Vector{Tuple{String,MaybeStr}}()
+    julia_compat::MaybeStr = nothing
+    manifest_updated::Bool = false
 end
+
+function project_updated(r::CompatResult)
+    !isempty(r.new) || !isempty(r.updated) || r.julia_compat !== nothing
+end
+manifest_updated(r::CompatResult) = r.manifest_updated
+updated(r::CompatResult) = project_updated(r) || manifest_updated(r)
