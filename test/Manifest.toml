@@ -330,11 +330,11 @@ uuid = "56ddb016-857b-54e1-b83d-db4d58db5568"
 
 [[LyceumBase]]
 deps = ["Adapt", "AutoHashEquals", "BangBang", "Dates", "Distributions", "DocStringExtensions", "ElasticArrays", "Future", "LinearAlgebra", "MacroTools", "Parameters", "Pkg", "Printf", "Random", "Setfield", "Shapes", "SpecialArrays", "StaticArrays", "StructArrays", "UnicodePlots", "UnsafeArrays"]
-git-tree-sha1 = "c0d7bba8d863130f531351cbfc7afcf57ebab71d"
+git-tree-sha1 = "d43eff09587a1ce2db2a940bf882ad4706e62194"
 repo-rev = "master"
 repo-url = "https://github.com/Lyceum/LyceumBase.jl.git"
 uuid = "db31fed1-ca1e-4084-8a49-12fae1996a55"
-version = "0.4.0-DEV"
+version = "0.3.0-DEV"
 
 [[LyceumCore]]
 deps = ["StaticNumbers"]

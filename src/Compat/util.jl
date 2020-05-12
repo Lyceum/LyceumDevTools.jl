@@ -1,5 +1,3 @@
-isstdlib(name::AbstractString) = isstdlib(Base.UUID(name))
-isstdlib(uuid::Base.UUID) = uuid in BASE_PACKAGES
 isjll(name::AbstractString) = endswith(lowercase(strip(name)), lowercase(strip("_jll"))) # TODO check for Artifacts.toml?
 
 
@@ -33,7 +31,7 @@ function format_compat(compat::AbstractString, drop_patch::Bool)
 end
 
 function format_compat(old, new, drop_patch)
-    "$(format_compat(old, drop_patch)), $(format_compat(new, drop_patch))"
+    "$(format_compat(old, false)), $(format_compat(new, drop_patch))"
 end
 
 lowerbound(spec::VersionSpec) = minimum(r -> bound2ver(r.lower), spec.ranges)
@@ -45,11 +43,11 @@ bound2ver(bound::VersionBound) = VersionNumber(bound[1], bound[2], bound[3])
 function with_sandbox(fn::Function, ctx::Context)
     project = deepcopy(ctx.env.project)
     manifest = deepcopy(ctx.env.manifest)
-    Operations.abspath!(ctx, manifest)
+    abspath!(ctx, manifest)
     mktempdir() do tmp
         write_project(project, projectfile_path(tmp))
         write_manifest(manifest, manifestfile_path(tmp))
-        Operations.with_temp_env(tmp) do
+        with_temp_env(tmp) do
             Pkg.resolve()
             return fn(tmp)
         end
