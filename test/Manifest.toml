@@ -263,7 +263,7 @@ uuid = "56ddb016-857b-54e1-b83d-db4d58db5568"
 
 [[LyceumBase]]
 deps = ["Adapt", "AutoHashEquals", "BangBang", "Dates", "Distributions", "DocStringExtensions", "ElasticArrays", "Future", "LinearAlgebra", "MacroTools", "Parameters", "Pkg", "Printf", "Random", "Setfield", "Shapes", "SpecialArrays", "StaticArrays", "StructArrays", "UnicodePlots", "UnsafeArrays"]
-git-tree-sha1 = "fa5e089255cf8beee9f56a762a022cb4fa402b12"
+git-tree-sha1 = "6d840b302fe4059011386903337a375694e6697c"
 repo-rev = "master"
 repo-url = "https://github.com/Lyceum/LyceumBase.jl.git"
 uuid = "db31fed1-ca1e-4084-8a49-12fae1996a55"
@@ -442,9 +442,11 @@ version = "0.6.0"
 
 [[Shapes]]
 deps = ["Adapt", "MacroTools", "Random", "Requires", "StaticArrays", "UnsafeArrays"]
-git-tree-sha1 = "12588058c4dc3590d8d19d5071e140d9b8924854"
+git-tree-sha1 = "a25a1183ae53fc6381c5d1d8070a740ff7098dc9"
+repo-rev = "master"
+repo-url = "https://github.com/Lyceum/Shapes.jl.git"
 uuid = "175de200-b73b-11e9-28b7-9b5b306cec37"
-version = "0.2.3"
+version = "0.3.0-DEV"
 
 [[SharedArrays]]
 deps = ["Distributed", "Mmap", "Random", "Serialization"]
